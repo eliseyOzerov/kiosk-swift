@@ -90,6 +90,9 @@ final class KioskTests: XCTestCase {
     let urlOverride = ConfiguredAPI(url: .host("local.example.com").adding(path: "preview"))
     XCTAssertEqual(urlOverride.context.url.host, "local.example.com")
     XCTAssertEqual(urlOverride.users.context.url.path.map(\.urlPathComponent), ["preview", "users"])
+
+    let labeled = LabeledConfiguredAPI()
+    XCTAssertEqual(labeled.context.url.host, "labeled.example.com")
   }
 
   func testApiProxyMethodsRebuildChildContexts() {
@@ -430,11 +433,14 @@ private struct StoreAPI {
   }
 }
 
-@Api("api.example.com", scheme: .http, port: .alternateHTTP, path: "v1")
+@Api(.host("api.example.com").scheme(.http).port(.alternateHTTP).adding(path: "v1"))
 private struct ConfiguredAPI {
   @Path
   struct Users {}
 }
+
+@Api(url: .host("labeled.example.com"))
+private struct LabeledConfiguredAPI {}
 
 @Content(.json)
 @Accept(.json)

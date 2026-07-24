@@ -386,81 +386,30 @@ private struct RoutePathArgument {
 }
 
 private struct ApiAttribute {
-  let host: String?
-  let scheme: String
-  let port: String?
-  let path: String?
+  let url: String
 
   init?(_ attribute: AttributeSyntax) {
-    let host =
-      Self.stringLiteral(for: nil, in: attribute)
-      ?? Self.stringLiteral(for: "host", in: attribute)
-    let scheme = Self.expression(for: "scheme", in: attribute) ?? ".https"
-    let port = Self.expression(for: "port", in: attribute)
-    let path = Self.stringLiteral(for: "path", in: attribute)
-
-    guard host != nil || scheme != ".https" || port != nil || path != nil else {
+    guard let url = Self.expression(in: attribute) else {
       return nil
     }
 
-    self.host = host
-    self.scheme = scheme
-    self.port = port
-    self.path = path
+    self.url = url
   }
 
   var contextExpression: String {
-    var expression = "UrlBuilder()"
-
-    if let host {
-      expression += "\n    .host(\"\(host)\")"
-    }
-
-    expression += "\n    .scheme(\(scheme))"
-
-    if let port {
-      expression += "\n    .port(\(port))"
-    }
-
-    if let path {
-      expression += "\n    .adding(path: \"\(path)\")"
-    }
-
-    return "HttpContext(url: \(expression))"
+    "HttpContext(url: \(url))"
   }
 
-  private static func expression(for label: String, in attribute: AttributeSyntax) -> String? {
+  private static func expression(in attribute: AttributeSyntax) -> String? {
     guard case .argumentList(let arguments) = attribute.arguments else {
       return nil
     }
 
     for argument in arguments {
-      guard argument.label?.text == label else {
+      guard argument.label == nil || argument.label?.text == "url" else {
         continue
       }
       return argument.expression.trimmedDescription
-    }
-
-    return nil
-  }
-
-  private static func stringLiteral(for label: String?, in attribute: AttributeSyntax) -> String? {
-    guard case .argumentList(let arguments) = attribute.arguments else {
-      return nil
-    }
-
-    for argument in arguments {
-      if let label {
-        guard argument.label?.text == label else {
-          continue
-        }
-      } else {
-        guard argument.label == nil else {
-          continue
-        }
-      }
-
-      return AttributeArgument.stringLiteral(argument.expression.trimmedDescription)
     }
 
     return nil

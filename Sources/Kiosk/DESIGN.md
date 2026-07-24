@@ -5,7 +5,7 @@ Kiosk's premise is that a REST client should be declared in the same shape as th
 The core runtime type is `HttpContext`. It carries the base URL, session, headers, content defaults, accepted response type, serialization settings, error decoding, request options, and wrappers. Route macros copy and refine that context as the call path moves from the root to a specific endpoint.
 
 ```swift
-@Api("api.example.com")
+@Api(.host("api.example.com"))
 @Content(.json)
 @Accept(.json)
 struct StoreAPI {
@@ -34,7 +34,7 @@ let response = try await api.users.search(q: "ada")
 
 - API declarations are Swift source, not generated files.
 - Nested routes make the client surface discoverable through dot access.
-- `@Api` can seed the default root URL, while `HttpContext` drives request construction and carries inherited configuration.
+- `@Api` can seed the default root URL with `UrlBuilder`, while `HttpContext` drives request construction and carries inherited configuration.
 - Endpoint-local `Query`, `Headers`, `Content`, and `Response` types keep contracts near their endpoint.
 - Macros generate ordinary request-building code that ends in `URLRequest`.
 - Serialization and validation macros can be reused for local models used by requests and responses.

@@ -6,7 +6,7 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 
 ## Public Macro Inventory
 
-- API tree: `@Api`, `@Path`, `@Route`, `@Param`. `@Api` can seed root URL defaults with host, scheme, port, and base path.
+- API tree: `@Api`, `@Path`, `@Route`, `@Param`. `@Api` can seed root URL defaults with the same `UrlBuilder` API used by generated initializers.
 - HTTP contracts: `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Query`, `@Header`, `@Content`, `@Accept`, `@Field(_:_: )`, `@Part`, `@Response`, `@Wrap`, `@Unwrap`.
 - Serialization: `@Serializable`, `@Field(_:)`, `@Format`, `@Default`.
 - Validation: `@Validatable`, `@Required`, `@NonEmpty`, `@Range`, `@Pattern`, `@Past`, `@Future`, `@Validate`.

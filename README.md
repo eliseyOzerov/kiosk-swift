@@ -31,7 +31,7 @@ An API starts with an `@Api` or `@Path` root that stores an `HttpContext`. Neste
 ```swift
 import Kiosk
 
-@Api("api.example.com")
+@Api(.host("api.example.com"))
 @Content(.json)
 @Accept(.json)
 struct StoreAPI {
@@ -93,10 +93,10 @@ Kiosk can express the main parts of a REST request:
 
 ## API Configuration
 
-`@Api` can seed the root URL for the generated default initializer:
+`@Api` can seed the root URL for the generated default initializer using the same `UrlBuilder` API accepted by the generated `url:` initializer:
 
 ```swift
-@Api("api.example.com", scheme: .https, path: "v1")
+@Api(.host("api.example.com").scheme(.https).adding(path: "v1"))
 struct StoreAPI {}
 
 let api = StoreAPI()
@@ -106,7 +106,7 @@ You can still override that default at construction time:
 
 ```swift
 let api = StoreAPI("api.example.com")
-let staging = StoreAPI(url: .host("staging.example.com").scheme(.http))
+let staging = StoreAPI(url: .host("staging.example.com").scheme(.http).adding(path: "v1"))
 ```
 
 `HttpContext` is the request configuration driver. It stores the base URL, session, headers, content defaults, accepted response type, request options, serialization settings, error decoding, and wrapper registry.
