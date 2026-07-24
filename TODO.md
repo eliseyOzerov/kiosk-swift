@@ -6,7 +6,7 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 
 ## Public Macro Inventory
 
-- API tree: `@Api`, `@Path`, `@Route`, `@Param`.
+- API tree: `@Api`, `@Path`, `@Route`, `@Param`. `@Api` can seed root URL defaults with host, scheme, port, and base path.
 - HTTP contracts: `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Query`, `@Header`, `@Content`, `@Accept`, `@Field(_:_: )`, `@Part`, `@Response`, `@Wrap`, `@Unwrap`.
 - Serialization: `@Serializable`, `@Field(_:)`, `@Format`, `@Default`.
 - Validation: `@Validatable`, `@Required`, `@NonEmpty`, `@Range`, `@Pattern`, `@Past`, `@Future`, `@Validate`.
@@ -23,7 +23,7 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 ## Claim To Test Map
 
 - Discoverable nested route client surface: `testPathMacrosBuildNestedContextWithKioskImport`, `testApiMacroBuildsPathTreeLikeRootApiNamespace`, `testUnlabeledPathConvertsStructNamesToURLSegments`.
-- Scoped `HttpContext` configuration: `testContentMetadataInheritsAndOverridesAcrossPathTree`, `testAcceptHeaderReachesFinalURLRequest`, `testHttpContextCanConfigureWrappersWithoutExternalProducts`, `testApiProxyMethodsRebuildChildContexts`.
+- Scoped `HttpContext` configuration: `testApiMacroConfigurationBuildsDefaultContext`, `testContentMetadataInheritsAndOverridesAcrossPathTree`, `testAcceptHeaderReachesFinalURLRequest`, `testHttpContextCanConfigureWrappersWithoutExternalProducts`, `testApiProxyMethodsRebuildChildContexts`.
 - REST endpoint contract generation: `testGetMacroBuildsRequestWithQueryParameters`, `testPostMacroBuildsRequestContent`, `testEndpointStructMacrosBuildComprehensiveAPI`, `testEndpointStructMacrosReturnDeclaredResults`.
 - Wrapper behavior: `testWrapAndUnwrapMacrosScopeRegisteredWrappers`, `testWrappersRunInOrderAndCanMutateGeneratedRequests`, `testGeneratedEndpointsAndHandwrittenContextUseSameWrapperPipeline`, `testApiProxyMethodsCanRegisterMiddleware`, `testRouteAndEndpointProxyMethodsCanUpdateRequests`.
 - Single import for model macros: `testSingleImportExposesSerializationMacros`, `testSingleImportExposesValidationMacros`.

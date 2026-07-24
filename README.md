@@ -31,7 +31,7 @@ An API starts with an `@Api` or `@Path` root that stores an `HttpContext`. Neste
 ```swift
 import Kiosk
 
-@Api
+@Api("api.example.com")
 @Content(.json)
 @Accept(.json)
 struct StoreAPI {
@@ -79,7 +79,8 @@ The generated client keeps a copy of `HttpContext` at every node. Route nodes re
 
 Kiosk can express the main parts of a REST request:
 
-- Base URL and `URLSession` through `HttpContext`.
+- Base URL through `@Api`, generated initializers, or `HttpContext`.
+- `URLSession` through `HttpContext`.
 - Static path segments through nested `@Path` types.
 - Dynamic path segments through `@Param`.
 - HTTP method through `@Get`, `@Post`, `@Put`, `@Patch`, or `@Delete`.
@@ -92,12 +93,23 @@ Kiosk can express the main parts of a REST request:
 
 ## API Configuration
 
-`HttpContext` is the request configuration driver. It stores the base URL, session, headers, content defaults, accepted response type, request options, serialization settings, error decoding, and wrapper registry.
+`@Api` can seed the root URL for the generated default initializer:
+
+```swift
+@Api("api.example.com", scheme: .https, path: "v1")
+struct StoreAPI {}
+
+let api = StoreAPI()
+```
+
+You can still override that default at construction time:
 
 ```swift
 let api = StoreAPI("api.example.com")
 let staging = StoreAPI(url: .host("staging.example.com").scheme(.http))
 ```
+
+`HttpContext` is the request configuration driver. It stores the base URL, session, headers, content defaults, accepted response type, request options, serialization settings, error decoding, and wrapper registry.
 
 Generated API, route, and endpoint values proxy the common `HttpContext` configuration methods, so most callsites do not need to touch `context` directly:
 

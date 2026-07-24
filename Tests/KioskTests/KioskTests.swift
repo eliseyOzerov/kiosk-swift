@@ -74,6 +74,24 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(versioned.users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
   }
 
+  func testApiMacroConfigurationBuildsDefaultContext() {
+    let api = ConfiguredAPI()
+
+    XCTAssertEqual(api.context.url.host, "api.example.com")
+    XCTAssertEqual(api.context.url.scheme, .http)
+    XCTAssertEqual(api.context.url.port, .alternateHTTP)
+    XCTAssertEqual(api.users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
+
+    let hostOverride = ConfiguredAPI("staging.example.com")
+    XCTAssertEqual(hostOverride.context.url.host, "staging.example.com")
+    XCTAssertEqual(hostOverride.context.url.scheme, .https)
+    XCTAssertEqual(hostOverride.users.context.url.path.map(\.urlPathComponent), ["users"])
+
+    let urlOverride = ConfiguredAPI(url: .host("local.example.com").adding(path: "preview"))
+    XCTAssertEqual(urlOverride.context.url.host, "local.example.com")
+    XCTAssertEqual(urlOverride.users.context.url.path.map(\.urlPathComponent), ["preview", "users"])
+  }
+
   func testApiProxyMethodsRebuildChildContexts() {
     let header = HttpHeader(name: "X-Client", value: "kiosk")
     let api = StoreAPI("example.com")
@@ -410,6 +428,12 @@ private struct StoreAPI {
       typealias Response = Data
     }
   }
+}
+
+@Api("api.example.com", scheme: .http, port: .alternateHTTP, path: "v1")
+private struct ConfiguredAPI {
+  @Path
+  struct Users {}
 }
 
 @Content(.json)

@@ -2,7 +2,12 @@
 
 /// Generates path context storage and child path accessors for an API namespace.
 @attached(member, names: arbitrary)
-public macro Api() = #externalMacro(module: "KioskMacros", type: "RouteMacro")
+public macro Api(
+  _ host: String? = nil,
+  scheme: UrlScheme = .https,
+  port: UrlPort? = nil,
+  path: String? = nil
+) = #externalMacro(module: "KioskMacros", type: "RouteMacro")
 
 /// Generates path context storage and child path accessors for a URL namespace.
 @attached(member, names: arbitrary)

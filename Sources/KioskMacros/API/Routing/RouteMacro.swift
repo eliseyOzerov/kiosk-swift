@@ -10,6 +10,7 @@ public struct RouteMacro: MemberMacro {
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
     let children = RouteExpansion.children(in: declaration, context: context)
+    let defaultContextExpression = RouteExpansion.defaultContextExpression(for: declaration)
     let contextExpression = RouteExpansion.contextExpression(for: declaration)
     let childProperties = children.map(\.storedProperty)
     let childInitializers = children.map(\.initializer)
@@ -21,7 +22,7 @@ public struct RouteMacro: MemberMacro {
       """,
     ] + childProperties + [
       """
-      init(context: HttpContext = .init()) {
+      init(context: HttpContext = \(raw: defaultContextExpression)) {
           let context = \(raw: contextExpression)
           self.context = context
       \(raw: childInitializers.joined(separator: "\n"))
@@ -180,6 +181,16 @@ enum ContextProxyExpansion {
 }
 
 enum RouteExpansion {
+  static func defaultContextExpression(for declaration: some DeclGroupSyntax) -> String {
+    guard let attribute = declaration.attribute(named: "Api"),
+      let configuration = ApiAttribute(attribute)
+    else {
+      return ".init()"
+    }
+
+    return configuration.contextExpression
+  }
+
   static func contextExpression(for declaration: some DeclGroupSyntax) -> String {
     decoratedContextExpression("context", for: declaration)
   }
@@ -371,6 +382,88 @@ private struct RoutePathArgument {
     }
 
     return String(remainder[..<end])
+  }
+}
+
+private struct ApiAttribute {
+  let host: String?
+  let scheme: String
+  let port: String?
+  let path: String?
+
+  init?(_ attribute: AttributeSyntax) {
+    let host =
+      Self.stringLiteral(for: nil, in: attribute)
+      ?? Self.stringLiteral(for: "host", in: attribute)
+    let scheme = Self.expression(for: "scheme", in: attribute) ?? ".https"
+    let port = Self.expression(for: "port", in: attribute)
+    let path = Self.stringLiteral(for: "path", in: attribute)
+
+    guard host != nil || scheme != ".https" || port != nil || path != nil else {
+      return nil
+    }
+
+    self.host = host
+    self.scheme = scheme
+    self.port = port
+    self.path = path
+  }
+
+  var contextExpression: String {
+    var expression = "UrlBuilder()"
+
+    if let host {
+      expression += "\n    .host(\"\(host)\")"
+    }
+
+    expression += "\n    .scheme(\(scheme))"
+
+    if let port {
+      expression += "\n    .port(\(port))"
+    }
+
+    if let path {
+      expression += "\n    .adding(path: \"\(path)\")"
+    }
+
+    return "HttpContext(url: \(expression))"
+  }
+
+  private static func expression(for label: String, in attribute: AttributeSyntax) -> String? {
+    guard case .argumentList(let arguments) = attribute.arguments else {
+      return nil
+    }
+
+    for argument in arguments {
+      guard argument.label?.text == label else {
+        continue
+      }
+      return argument.expression.trimmedDescription
+    }
+
+    return nil
+  }
+
+  private static func stringLiteral(for label: String?, in attribute: AttributeSyntax) -> String? {
+    guard case .argumentList(let arguments) = attribute.arguments else {
+      return nil
+    }
+
+    for argument in arguments {
+      if let label {
+        guard argument.label?.text == label else {
+          continue
+        }
+      } else {
+        guard argument.label == nil else {
+          continue
+        }
+      }
+
+      return AttributeArgument.stringLiteral(argument.expression.trimmedDescription)
+    }
+
+    return nil
   }
 }
 
