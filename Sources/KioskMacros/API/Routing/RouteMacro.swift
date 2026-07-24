@@ -1,0 +1,504 @@
+import SwiftDiagnostics
+import SwiftSyntax
+import SwiftSyntaxMacros
+
+public struct RouteMacro: MemberMacro {
+  public static func expansion(
+    of node: AttributeSyntax,
+    providingMembersOf declaration: some DeclGroupSyntax,
+    conformingTo protocols: [TypeSyntax],
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    let children = RouteExpansion.children(in: declaration, context: context)
+    let contextExpression = RouteExpansion.contextExpression(for: declaration)
+    let childProperties = children.map(\.storedProperty)
+    let childInitializers = children.map(\.initializer)
+    let parameterBinder = RouteExpansion.parameterBinder(in: declaration, context: context)
+
+    return [
+      """
+      var context: HttpContext
+      """,
+    ] + childProperties + [
+      """
+      init(context: HttpContext = .init()) {
+          let context = \(raw: contextExpression)
+          self.context = context
+      \(raw: childInitializers.joined(separator: "\n"))
+      }
+      """,
+      """
+      init(_ host: String) {
+          self.init(host: host)
+      }
+      """,
+      """
+      init(host: String) {
+          self.init(url: .host(host))
+      }
+      """,
+      """
+      init(url: UrlBuilder) {
+          self.init(context: HttpContext(url: url))
+      }
+      """,
+    ] + ContextProxyExpansion.members + parameterBinder
+  }
+}
+
+enum ContextProxyExpansion {
+  static var members: [DeclSyntax] {
+    [
+      """
+      func with(context: HttpContext) -> Self {
+          Self(context: context)
+      }
+      """,
+      """
+      func url(_ url: UrlBuilder) -> Self {
+          Self(context: context.url(url))
+      }
+      """,
+      """
+      func scheme(_ scheme: UrlScheme) -> Self {
+          Self(context: context.scheme(scheme))
+      }
+      """,
+      """
+      func host(_ host: String?) -> Self {
+          Self(context: context.host(host))
+      }
+      """,
+      """
+      func port(_ port: UrlPort?) -> Self {
+          Self(context: context.port(port))
+      }
+      """,
+      """
+      func path(_ path: [UrlPathComponent]) -> Self {
+          Self(context: context.path(path))
+      }
+      """,
+      """
+      func query(_ query: [UrlQueryItem]) -> Self {
+          Self(context: context.query(query))
+      }
+      """,
+      """
+      func headers(_ headers: [HttpHeader]) -> Self {
+          Self(context: context.headers(headers))
+      }
+      """,
+      """
+      func options(_ options: HttpOptions) -> Self {
+          Self(context: context.options(options))
+      }
+      """,
+      """
+      func adding(path component: UrlPathComponent) -> Self {
+          Self(context: context.adding(path: component))
+      }
+      """,
+      """
+      func adding(query item: UrlQueryItem) -> Self {
+          Self(context: context.adding(query: item))
+      }
+      """,
+      """
+      func adding(query items: [UrlQueryItem]) -> Self {
+          Self(context: context.adding(query: items))
+      }
+      """,
+      """
+      func adding(header: HttpHeader) -> Self {
+          Self(context: context.adding(header: header))
+      }
+      """,
+      """
+      func adding(headers: [HttpHeader]) -> Self {
+          Self(context: context.adding(headers: headers))
+      }
+      """,
+      """
+      func serialization(_ serialization: SerializationContext) -> Self {
+          Self(context: context.serialization(serialization))
+      }
+      """,
+      """
+      func errors(_ errors: HttpErrorDecoding) -> Self {
+          Self(context: context.errors(errors))
+      }
+      """,
+      """
+      func content(_ contentType: HTTPContentType) -> Self {
+          Self(context: context.content(contentType))
+      }
+      """,
+      """
+      func accept(_ accept: HTTPContentType) -> Self {
+          Self(context: context.accept(accept))
+      }
+      """,
+      """
+      func throwing<Failure: Decodable & Swift.Error>(
+          _ failure: Failure.Type,
+          for statusCode: HTTPStatusCode
+      ) -> Self {
+          Self(context: context.throwing(Failure.self, for: statusCode))
+      }
+      """,
+      """
+      func throwing<Failure: Decodable & Swift.Error>(
+          _ failure: Failure.Type,
+          for statusClass: HTTPStatusClass
+      ) -> Self {
+          Self(context: context.throwing(Failure.self, for: statusClass))
+      }
+      """,
+      """
+      func register(_ key: WrapperKey, _ wrapper: any HttpWrapper) -> Self {
+          Self(context: context.register(key, wrapper))
+      }
+      """,
+      """
+      func wrap(_ key: WrapperKey, _ wrapper: (any HttpWrapper)? = nil, activate: Bool = true) -> Self {
+          Self(context: context.wrap(key, wrapper, activate: activate))
+      }
+      """,
+      """
+      func unwrap(_ key: WrapperKey) -> Self {
+          Self(context: context.unwrap(key))
+      }
+      """,
+      """
+      func unwrapped() -> Self {
+          Self(context: context.unwrapped())
+      }
+      """,
+    ]
+  }
+}
+
+enum RouteExpansion {
+  static func contextExpression(for declaration: some DeclGroupSyntax) -> String {
+    decoratedContextExpression("context", for: declaration)
+  }
+
+  static func children(
+    in declaration: some DeclGroupSyntax,
+    context: some MacroExpansionContext
+  ) -> [RouteChild] {
+    declaration.memberBlock.members.compactMap { member -> RouteChild? in
+      guard let child = member.decl.as(StructDeclSyntax.self) else { return nil }
+
+      let childName = child.name.text
+      let accessor = childName.lowercasedFirst
+      let parameters = RouteParamArgument.all(
+        in: child,
+        context: context
+      )
+
+      if let routeAttribute = pathAttribute(in: child) {
+        let path = RoutePathArgument(routeAttribute).path ?? (parameters.isEmpty ? childName.urlPathSegment : nil)
+        return RouteChild(
+          childName: childName,
+          accessor: accessor,
+          path: path,
+          declaration: child
+        )
+      }
+
+      guard let methodAttribute = HTTPMethodAttribute(child, childName: childName) else { return nil }
+
+      return RouteChild(
+        childName: childName,
+        accessor: accessor,
+        path: methodAttribute.path,
+        declaration: child
+      )
+    }
+  }
+
+  static func parameterBinder(
+    in declaration: some DeclGroupSyntax,
+    context: some MacroExpansionContext
+  ) -> [DeclSyntax] {
+    let parameters = RouteParamArgument.all(in: declaration, context: context)
+    guard !parameters.isEmpty else {
+      return []
+    }
+
+    let signature = parameters.map { "\($0.label): \($0.type)" }.joined(separator: ", ")
+    let expression = contextExpression(path: nil, parameters: parameters, declaration: declaration)
+    return [
+      """
+      func callAsFunction(\(raw: signature)) -> Self {
+          Self(context: \(raw: expression))
+      }
+      """
+    ]
+  }
+
+  static func contextExpression(
+    path: String?,
+    parameters: [RouteParamArgument],
+    declaration: some DeclGroupSyntax
+  ) -> String {
+    var expression = "context"
+
+    if let path {
+      expression += "\n    .adding(path: \"\(path)\")"
+    }
+
+    for parameter in parameters {
+      expression += "\n    .adding(path: \(parameter.label))"
+    }
+
+    return decoratedContextExpression(expression, for: declaration)
+  }
+
+  private static func decoratedContextExpression(
+    _ expression: String,
+    for declaration: some DeclGroupSyntax
+  ) -> String {
+    var expression = expression
+
+    for element in declaration.attributes {
+      guard let attribute = element.as(AttributeSyntax.self) else {
+        continue
+      }
+
+      switch attribute.attributeName.trimmedDescription {
+      case "Content":
+        if let content = ContentAttribute(attribute) {
+          expression += "\n    .content(\(content.contentType))"
+        }
+      case "Accept":
+        if let accept = ContentAttribute(attribute) {
+          expression += "\n    .accept(\(accept.contentType))"
+        }
+      case "Wrap":
+        if let wrapper = WrapperAttribute(attribute) {
+          expression += "\n    .wrap(\(wrapper.key))"
+        }
+      case "Unwrap":
+        if let wrapper = WrapperAttribute(attribute) {
+          expression += "\n    .unwrap(\(wrapper.key))"
+        }
+      default:
+        break
+      }
+    }
+
+    return expression
+  }
+
+  private static func attribute(named name: String, in declaration: some DeclGroupSyntax)
+    -> AttributeSyntax?
+  {
+    declaration.attributes.lazy.compactMap { element in
+      element.as(AttributeSyntax.self)
+    }
+    .first { attribute in
+      attribute.attributeName.trimmedDescription == name
+    }
+  }
+
+  private static func pathAttribute(in declaration: some DeclGroupSyntax) -> AttributeSyntax? {
+    attribute(named: "Path", in: declaration) ?? attribute(named: "Route", in: declaration)
+  }
+}
+
+/// Stored child route or endpoint metadata synthesized into a generated API route tree.
+struct RouteChild {
+  let childName: String
+  let accessor: String
+  let path: String?
+  let declaration: StructDeclSyntax
+
+  var storedProperty: DeclSyntax {
+    """
+    var \(raw: accessor): \(raw: childName)
+    """
+  }
+
+  var initializer: String {
+    let expression = RouteExpansion.contextExpression(
+      path: path,
+      parameters: [],
+      declaration: declaration
+    )
+    return "        self.\(accessor) = \(childName)(context: \(expression))"
+  }
+}
+
+private struct RoutePathArgument {
+  let path: String?
+
+  init(_ attribute: AttributeSyntax) {
+    path = Self.unlabeledStringLiteral(in: attribute.description)
+  }
+
+  private static func unlabeledStringLiteral(in text: String) -> String? {
+    guard let open = text.firstIndex(of: "("),
+      let close = text.lastIndex(of: ")"),
+      open < close
+    else {
+      return nil
+    }
+
+    let body = text[text.index(after: open)..<close]
+    guard let first = body.split(separator: ",", maxSplits: 1).first else {
+      return nil
+    }
+
+    let argument = first.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !argument.contains(":") else {
+      return nil
+    }
+
+    return firstStringLiteral(in: argument)
+  }
+
+  private static func firstStringLiteral(in text: String) -> String? {
+    guard let start = text.firstIndex(of: "\"") else {
+      return nil
+    }
+
+    let remainder = text[text.index(after: start)...]
+    guard let end = remainder.firstIndex(of: "\"") else {
+      return nil
+    }
+
+    return String(remainder[..<end])
+  }
+}
+
+struct RouteParamArgument {
+  let label: String
+  let type: String
+
+  static func all(
+    in declaration: some DeclGroupSyntax,
+    context: some MacroExpansionContext
+  ) -> [RouteParamArgument] {
+    let parameters: [RouteParamArgument] = declaration.attributes.compactMap { element in
+      guard let attribute = element.as(AttributeSyntax.self),
+        attribute.attributeName.trimmedDescription == "Param"
+      else {
+        return nil
+      }
+
+      guard let parameter = RouteParamArgument(attribute) else {
+        context.diagnose(
+          Diagnostic(
+            node: Syntax(attribute),
+            message: ApiUtilsMacroDiagnostic(
+              "Expected @Param(\"label\", Type.self).",
+              id: "invalid-route-param-attribute"
+            )
+          )
+        )
+        return nil
+      }
+
+      guard parameter.label.isSimpleSwiftIdentifier else {
+        context.diagnose(
+          Diagnostic(
+            node: Syntax(attribute),
+            message: ApiUtilsMacroDiagnostic(
+              "@Param label '\(parameter.label)' must be a Swift identifier.",
+              id: "invalid-route-param-label"
+            )
+          )
+        )
+        return nil
+      }
+
+      return parameter
+    }
+
+    let duplicateLabels = Dictionary(grouping: parameters, by: \.label)
+      .filter { $0.value.count > 1 }
+      .keys
+
+    for label in duplicateLabels {
+      context.diagnose(
+        Diagnostic(
+          node: Syntax(declaration),
+          message: ApiUtilsMacroDiagnostic(
+            "Multiple @Param attributes resolve to the same label '\(label)'. Provide explicit labels.",
+            id: "duplicate-route-param-label"
+          )
+        )
+      )
+    }
+
+    return parameters
+  }
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let argument = LabeledTypeAttribute(attribute) else {
+      return nil
+    }
+
+    label = argument.label
+    type = argument.type
+  }
+}
+
+private struct HTTPMethodAttribute {
+  let path: String?
+
+  init?(_ declaration: some DeclGroupSyntax, childName: String) {
+    guard let attribute = Self.attribute(in: declaration) else {
+      return nil
+    }
+
+    path = RoutePathArgument(attribute).path ?? Self.defaultPath(
+      childName: childName,
+      methodName: attribute.attributeName.trimmedDescription
+    )
+  }
+
+  private static func defaultPath(childName: String, methodName: String) -> String? {
+    let accessor = childName.lowercasedFirst
+    return accessor == methodName.lowercased() ? nil : childName.urlPathSegment
+  }
+
+  private static func attribute(in declaration: some DeclGroupSyntax) -> AttributeSyntax? {
+    declaration.attributes.lazy.compactMap { element in
+      element.as(AttributeSyntax.self)
+    }
+    .first { attribute in
+      Self.names.contains(attribute.attributeName.trimmedDescription)
+    }
+  }
+
+  private static let names = ["Get", "Post", "Put", "Patch", "Delete"]
+}
+
+private extension String {
+  var lowercasedFirst: String {
+    guard let first else { return self }
+    return first.lowercased() + String(dropFirst())
+  }
+
+  var urlPathSegment: String {
+    guard !isEmpty else { return self }
+
+    var result = ""
+    for character in self {
+      if character.isUppercase {
+        if !result.isEmpty {
+          result.append("-")
+        }
+        result.append(character.lowercased())
+      } else {
+        result.append(character)
+      }
+    }
+
+    return result
+  }
+}
