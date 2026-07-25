@@ -53,24 +53,6 @@ final class KioskLocalModelTests: XCTestCase {
     XCTAssertEqual(object["enabled"] as? String, "true")
     XCTAssertEqual(object["tags"] as? [String], [])
   }
-
-  func testSingleImportExposesValidationMacros() {
-    let valid = LocalProfile(name: "Kiosk", tags: ["swift"], email: "hello@kiosk.dev")
-    let missingName = LocalProfile(name: nil, tags: ["swift"], email: "hello@kiosk.dev")
-    let emptyTags = LocalProfile(name: "Kiosk", tags: [], email: "hello@kiosk.dev")
-    let invalidEmail = LocalProfile(name: "Kiosk", tags: ["swift"], email: "not-email")
-
-    XCTAssertNoThrow(try valid.validate())
-    XCTAssertThrowsError(try missingName.validate()) { error in
-      XCTAssertEqual((error as? ValidationError)?.field, "name")
-    }
-    XCTAssertThrowsError(try emptyTags.validate()) { error in
-      XCTAssertEqual((error as? ValidationError)?.field, "tags")
-    }
-    XCTAssertThrowsError(try invalidEmail.validate()) { error in
-      XCTAssertEqual((error as? ValidationError)?.field, "email")
-    }
-  }
 }
 
 @Wire
@@ -86,11 +68,4 @@ struct ContextualRecord: Equatable {
   var createdAt: Date
   var enabled: Bool
   var tags: [String]
-}
-
-@Validatable
-struct LocalProfile {
-  @Required var name: String?
-  @NonEmpty var tags: [String]
-  @Pattern(.email) var email: String?
 }

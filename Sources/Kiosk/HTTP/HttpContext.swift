@@ -607,10 +607,6 @@ extension HttpContext {
     for method: HTTPMethod,
     json requestBody: RequestBody
   ) async throws -> Response<Data> {
-    if let validatable = requestBody as? any Validatable {
-      try validatable.validate()
-    }
-
     let encoder = JSONEncoder()
     encoder.userInfo[.wireSpec] = wire
     let body = try encoder.encode(requestBody)
@@ -662,10 +658,6 @@ extension HttpContext {
     for method: HTTPMethod,
     json requestBody: RequestBody
   ) async throws -> Response<Data> {
-    if let validatable = requestBody as? any Validatable {
-      try validatable.validate()
-    }
-
     let encoder = JSONEncoder()
     encoder.userInfo[.wireSpec] = wire
     let body = try encoder.encode(requestBody)

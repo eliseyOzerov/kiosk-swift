@@ -2,7 +2,7 @@
 
 Kiosk is a Swift-first way to declare discoverable REST clients with scoped request configuration.
 
-Your client should look like the API it talks to: a route tree you can navigate in Swift, with endpoint-local request and response models, and inherited configuration for headers, content types, wire, validation, and middleware.
+Your client should look like the API it talks to: a route tree you can navigate in Swift, with endpoint-local request and response models, and inherited configuration for headers, content types, wire policy, and middleware.
 
 ## Building Requests
 
@@ -354,3 +354,7 @@ let api = StoreAPI("api.example.com")
 ```
 
 Form and multipart request content currently use content key metadata rather than the full `@Wire` encoder path. Use `@Key` for those field-name overrides until the content and wire naming APIs are unified.
+
+## Ideas
+
+Local model validation is intentionally out of the v0.1 package surface. Possible future validation macros include `@Validatable`, `@Required`, `@NonEmpty`, `@Range`, `@Pattern`, `@Past`, `@Future`, and `@Validate`, but Kiosk's current focus is API shape, request construction, middleware, and wire DTOs.

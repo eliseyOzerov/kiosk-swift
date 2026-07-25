@@ -428,7 +428,7 @@ final class KioskTests: XCTestCase {
     }
 
     let errorBody = try JSONEncoder().encode(
-      ContractAPI.ValidationError(message: "Name is required")
+      ContractAPI.BadRequest(message: "Name is required")
     )
     let failedAPI = ContractAPI(
       context: HttpContext(url: .host("example.com"))
@@ -437,11 +437,11 @@ final class KioskTests: XCTestCase {
 
     do {
       _ = try await failedAPI.users.create(.init(name: ""))
-      XCTFail("Expected validation error")
-    } catch let error as ContractAPI.ValidationError {
+      XCTFail("Expected bad request error")
+    } catch let error as ContractAPI.BadRequest {
       XCTAssertEqual(error.message, "Name is required")
     } catch {
-      XCTFail("Expected validation error, got \(error)")
+      XCTFail("Expected bad request error, got \(error)")
     }
 
     let profileBody = try JSONEncoder().encode(ContractAPI.Users.Profile.Response(name: "Ada"))
@@ -699,7 +699,7 @@ private struct ComprehensiveAPI {
 @Path
 private struct ContractAPI {
   @Status(.badRequest)
-  struct ValidationError: Error, Equatable, Codable {
+  struct BadRequest: Error, Equatable, Codable {
     let message: String
   }
 
