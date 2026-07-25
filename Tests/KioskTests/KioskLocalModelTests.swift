@@ -21,6 +21,39 @@ final class KioskLocalModelTests: XCTestCase {
     XCTAssertEqual(object["count"] as? Int, 3)
   }
 
+  func testSerializationContextDrivesLocalModelCoding() throws {
+    let context = SerializationContext(
+      spec: SerializationSpec(
+        fields: SerializationFieldSpec(renaming: .snakeCase),
+        formats: SerializationFormatSpec(date: .secondsSince1970, bool: .string)
+      )
+    )
+    let data = #"{"display_name":"Kiosk","created_at":1000,"enabled":"yes"}"#
+      .data(using: .utf8)!
+    let decoder = JSONDecoder()
+    decoder.userInfo[.serializationContext] = context
+
+    let decoded = try decoder.decode(ContextualRecord.self, from: data)
+
+    XCTAssertEqual(decoded.displayName, "Kiosk")
+    XCTAssertEqual(decoded.createdAt, Date(timeIntervalSince1970: 1000))
+    XCTAssertTrue(decoded.enabled)
+    XCTAssertEqual(decoded.tags, [])
+
+    let encoder = JSONEncoder()
+    encoder.userInfo[.serializationContext] = context
+
+    let encoded = try encoder.encode(decoded)
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+
+    XCTAssertEqual(object["display_name"] as? String, "Kiosk")
+    XCTAssertEqual((object["created_at"] as? NSNumber)?.doubleValue, 1000)
+    XCTAssertEqual(object["enabled"] as? String, "true")
+    XCTAssertEqual(object["tags"] as? [String], [])
+  }
+
   func testSingleImportExposesValidationMacros() {
     let valid = LocalProfile(name: "Kiosk", tags: ["swift"], email: "hello@kiosk.dev")
     let missingName = LocalProfile(name: nil, tags: ["swift"], email: "hello@kiosk.dev")
@@ -45,6 +78,14 @@ struct LocalRecord: Equatable {
   @Field("display_name") var name: String
   @Format(.string) var enabled: Bool
   @Default(3) var count: Int
+}
+
+@Serializable
+struct ContextualRecord: Equatable {
+  var displayName: String
+  var createdAt: Date
+  var enabled: Bool
+  var tags: [String]
 }
 
 @Validatable

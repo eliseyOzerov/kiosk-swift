@@ -199,6 +199,41 @@ final class KioskTests: XCTestCase {
     XCTAssertNil(decoded.displayName)
   }
 
+  func testApiSerializationContextDrivesGeneratedJSONContent() async throws {
+    let recorder = RequestRecorder()
+    let serialization = SerializationContext(
+      spec: SerializationSpec(
+        fields: SerializationFieldSpec(renaming: .snakeCase),
+        formats: SerializationFormatSpec(date: .secondsSince1970, bool: .string)
+      )
+    )
+    let api = StoreAPI(
+      context: HttpContext(url: .host("example.com"))
+        .serialization(serialization)
+        .wrap(.capture, RecordingWrapper(recorder: recorder))
+    )
+
+    _ = try await api.users.timedCreate(
+      .init(
+        displayName: "Ada",
+        createdAt: Date(timeIntervalSince1970: 1000),
+        enabled: true
+      )
+    )
+    let recordedRequest = await recorder.last()
+    let request = try XCTUnwrap(recordedRequest)
+    let body = try XCTUnwrap(request.body)
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: body) as? [String: Any]
+    )
+
+    XCTAssertEqual(request.method, .post)
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .json))
+    XCTAssertEqual(object["display_name"] as? String, "Ada")
+    XCTAssertEqual((object["created_at"] as? NSNumber)?.doubleValue, 1000)
+    XCTAssertEqual(object["enabled"] as? String, "true")
+  }
+
   func testEndpointStructMacrosBuildComprehensiveAPI() async throws {
     let recorder = RequestRecorder()
     let responseBody = try JSONEncoder().encode(ComprehensiveAPI.Posts.MutationResponse(ok: true))
@@ -440,6 +475,18 @@ private struct StoreAPI {
 
         @Key("display-name")
         let displayName: String?
+      }
+
+      typealias Response = Data
+    }
+
+    @Post
+    struct TimedCreate {
+      @Serializable
+      struct Content: Equatable {
+        let displayName: String
+        let createdAt: Date
+        let enabled: Bool
       }
 
       typealias Response = Data

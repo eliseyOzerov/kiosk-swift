@@ -650,7 +650,7 @@ public struct SerializationContext: Sendable {
 
 extension CodingUserInfoKey {
   public static let serializationContext = CodingUserInfoKey(
-    rawValue: "ApiUtils.SerializationContext")!
+    rawValue: "Kiosk.SerializationContext")!
 }
 
 extension String {

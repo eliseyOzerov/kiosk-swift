@@ -538,7 +538,7 @@ struct StoreAPI {
 
 ## Serialization
 
-Kiosk includes serialization macros because REST clients usually need local wire models.
+Kiosk includes serialization macros because REST clients usually need wire models that differ slightly from local Swift shape. `@Serializable` generates `Codable` behavior and reads `SerializationContext` from `JSONEncoder` and `JSONDecoder`.
 
 ```swift
 @Serializable
@@ -549,7 +549,53 @@ struct Account {
 }
 ```
 
-`@Serializable` generates `Codable` behavior using `SerializationContext`. `@Field` changes a wire key, `@Format` customizes supported value formats, and `@Default` provides a decode fallback.
+`@Field` overrides a single wire key. Without it, the active `SerializationContext` decides whether property names are used as-is or converted by a field renaming strategy.
+
+```swift
+@Serializable
+struct Profile {
+  @Field("display_name") var name: String
+}
+```
+
+`@Format` overrides how a single property is represented. Built-in formats cover JSON-native values, strings, ISO-8601 dates, Unix timestamps in seconds or milliseconds, and custom `DateFormatter` patterns.
+
+```swift
+@Serializable
+struct Session {
+  @Format(.secondsSince1970) var expiresAt: Date
+  @Format(.string) var enabled: Bool
+}
+```
+
+`@Default` supplies a value when a non-optional field is missing or null while decoding.
+
+```swift
+@Serializable
+struct Page {
+  @Default(1) var number: Int
+  @Default([]) var items: [Item]
+}
+```
+
+Serialization can also be configured for a whole API subtree. Generated API, path, and endpoint values proxy `.serialization(...)`, so the same policy is used when encoding JSON request bodies, decoding JSON responses, and decoding registered error responses.
+
+```swift
+let api = StoreAPI("api.example.com")
+  .serialization(
+    SerializationContext(
+      spec: SerializationSpec(
+        fields: SerializationFieldSpec(renaming: .snakeCase),
+        formats: SerializationFormatSpec(
+          date: .secondsSince1970,
+          bool: .string
+        )
+      )
+    )
+  )
+```
+
+Form and multipart request content currently use content key metadata rather than the full `@Serializable` encoder path. Use `@Key` for those field-name overrides until the content and serialization naming APIs are unified.
 
 ## Client-Side Validation
 
