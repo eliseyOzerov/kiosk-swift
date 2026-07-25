@@ -40,6 +40,68 @@ struct StoreAPI {
 
 `HttpContext` is the core request configuration object. It carries the current URL builder, headers, content-type defaults, accepted response type, request options, serialization settings, error decoding, middleware registry, and `URLSession`.
 
+### `@Path`
+
+`@Path` creates a route node and appends a static path segment to the URL. Its optional string parameter is the exact segment to add. If no segment is provided, Kiosk derives one from the Swift type name by converting it to a URL path segment, so `Users` becomes `users` and `RecentPosts` becomes `recent-posts`.
+
+Use `@Path` for stable route structure, not template placeholders. Dynamic URL segments belong to `@Param`.
+
+```swift
+@Api(.host("api.example.com"))
+struct StoreAPI {
+  @Path
+  struct Users {
+    @Path("recent-posts")
+    struct RecentPosts {}
+  }
+}
+
+let api = StoreAPI()
+let posts = api.users.recentPosts
+```
+
+Route nodes inherit the API context and can later refine it with scoped configuration such as headers, content-type defaults, accepted response types, and middleware.
+
+### `@Get`
+
+`@Get` selects the GET method and turns a nested endpoint type into a callable request. The optional string parameter overrides the derived endpoint path segment.
+
+```swift
+@Get
+struct Profile {
+  typealias Response = Data
+}
+
+let profile = try await api.users.user(userId: 42).profile()
+```
+
+### `@Post`, `@Put`, And `@Patch`
+
+`@Post`, `@Put`, and `@Patch` select body-friendly methods. A request body is discovered from a nested `Content` type, a `typealias Content`, or the single-value shorthand `@Content(Type.self)`.
+
+```swift
+@Post
+@Header(.contentType, .json)
+struct CreateUser {
+  struct Content: Codable {
+    let name: String
+  }
+
+  typealias Response = User
+}
+
+let created = try await api.users.createUser(.init(name: "Ada"))
+```
+
+### `@Delete`
+
+`@Delete` selects the DELETE method. Like the other method macros, it accepts an optional string path override and uses the endpoint's `Response` contract for successful responses.
+
+```swift
+@Delete
+struct DeleteUser {}
+```
+
 ### `@Header`
 
 `@Header` adds headers to requests. On an API or path, `@Header(key, value)` adds a default header to the inherited context. On an endpoint, `@Header(key)` declares a generated header argument using the key's value type.
@@ -70,28 +132,6 @@ let profile = try await api.users.profile(ifNoneMatch: "etag-1")
 
 `@Header(key, default: value)` makes a generated endpoint argument optional at the callsite. Custom headers can use the explicit string form: `@Header("X-Trace-ID", String.self)`.
 
-### `@Path`
-
-`@Path` creates a route node and appends a static path segment to the URL. Its optional string parameter is the exact segment to add. If no segment is provided, Kiosk derives one from the Swift type name by converting it to a URL path segment, so `Users` becomes `users` and `RecentPosts` becomes `recent-posts`.
-
-Use `@Path` for stable route structure, not template placeholders. Dynamic URL segments belong to `@Param`.
-
-```swift
-@Api(.host("api.example.com"))
-struct StoreAPI {
-  @Path
-  struct Users {
-    @Path("recent-posts")
-    struct RecentPosts {}
-  }
-}
-
-let api = StoreAPI()
-let posts = api.users.recentPosts
-```
-
-Route nodes inherit the API context and can later refine it with scoped configuration such as headers, content-type defaults, accepted response types, and middleware.
-
 ### `@Param`
 
 `@Param` adds a dynamic path segment to a route or endpoint. Its first parameter is the URL parameter name; Kiosk derives the Swift argument label from it. Its second parameter is the Swift type accepted by the generated function.
@@ -111,19 +151,6 @@ struct User {
 let profile = try await api.users.user(userId: 42).profile()
 ```
 
-### `@Get`
-
-`@Get` selects the GET method and turns a nested endpoint type into a callable request. The optional string parameter overrides the derived endpoint path segment.
-
-```swift
-@Get
-struct Profile {
-  typealias Response = Data
-}
-
-let profile = try await api.users.user(userId: 42).profile()
-```
-
 ### `@Query`
 
 `@Query` adds a query argument to an endpoint. The generated function appends the value to the URL as a key/value query item.
@@ -136,24 +163,6 @@ struct Profile {
 }
 
 let profile = try await api.users.user(userId: 42).profile(includePosts: true)
-```
-
-### `@Post`, `@Put`, And `@Patch`
-
-`@Post`, `@Put`, and `@Patch` select body-friendly methods. A request body is discovered from a nested `Content` type, a `typealias Content`, or the single-value shorthand `@Content(Type.self)`.
-
-```swift
-@Post
-@Header(.contentType, .json)
-struct CreateUser {
-  struct Content: Codable {
-    let name: String
-  }
-
-  typealias Response = User
-}
-
-let created = try await api.users.createUser(.init(name: "Ada"))
 ```
 
 ### `@Content`
@@ -186,15 +195,6 @@ struct Upload {
 }
 ```
 
-### `@Delete`
-
-`@Delete` selects the DELETE method. Like the other method macros, it accepts an optional string path override and uses the endpoint's `Response` contract for successful responses.
-
-```swift
-@Delete
-struct DeleteUser {}
-```
-
 ### `@Status`
 
 `@Status` registers a scoped error body for a non-success HTTP status. Put shared error models on the API or path where they should apply; endpoint structs still declare a single success `Response`.
@@ -208,6 +208,89 @@ struct StoreAPI {
   }
 }
 ```
+
+## Middleware
+
+Middleware is implemented with `HttpWrapper`. A wrapper receives an `HttpRequest`, can inspect or mutate it, and then calls the next step in the chain.
+
+```swift
+struct AuthWrapper: HttpWrapper {
+  let token: String
+
+  func send(
+    _ request: HttpRequest,
+    next: @Sendable (HttpRequest) async throws -> HttpResponse<Data>
+  ) async throws -> HttpResponse<Data> {
+    var request = request
+    request.headers.append(HttpHeader(.authorization, "Bearer \(token)").erased)
+    return try await next(request)
+  }
+}
+```
+
+Wrappers are stored by `WrapperKey`. Kiosk includes common keys such as `.auth` and `.logging`, and custom keys can be declared in your app:
+
+```swift
+extension WrapperKey {
+  static let idempotency = WrapperKey("idempotency")
+}
+```
+
+Generated API, path, and endpoint values expose the same middleware methods as `HttpContext`:
+
+- `register(key, wrapper)` stores a wrapper without activating it.
+- `wrap(key, wrapper)` stores and activates a wrapper.
+- `wrap(key)` activates a wrapper that was already registered higher in the tree.
+- `wrap(key, wrapper, activate: false)` stores a wrapper for descendants without activating it at the current node.
+- `unwrap(key)` deactivates one wrapper for that branch.
+- `unwrapped()` deactivates all wrappers for that branch.
+
+```swift
+let api = StoreAPI("api.example.com")
+  .register(.auth, AuthWrapper(token: token))
+  .wrap(.logging, LoggingWrapper())
+
+let authenticated = api.wrap(.auth)
+let publicAPI = authenticated.unwrap(.auth)
+let bareAPI = authenticated.unwrapped()
+```
+
+The same methods are available directly on `HttpContext` when you prefer to configure the root explicitly:
+
+```swift
+let api = StoreAPI(
+  context: HttpContext(url: .host("api.example.com"))
+    .register(.auth, AuthWrapper(token: token))
+    .wrap(.auth)
+)
+```
+
+`@Wrap` and `@Unwrap` apply the same activation rules in the route declaration itself. They are useful when authentication, logging, retries, or similar policies are part of the API shape:
+
+```swift
+@Api(.host("api.example.com"))
+struct StoreAPI {
+  @Path
+  @Wrap(.auth)
+  struct Account {
+    @Get
+    struct Profile {
+      typealias Response = Data
+    }
+  }
+
+  @Path
+  @Unwrap(.auth)
+  struct Public {
+    @Get
+    struct Status {
+      typealias Response = Data
+    }
+  }
+}
+```
+
+Wrappers run in active order and each wrapper decides whether to forward the request. That makes middleware suitable for auth headers, request IDs, retries, logging, response capture in tests, and endpoint-specific policy changes.
 
 ## Callsites
 
@@ -482,44 +565,6 @@ struct Signup {
 ```
 
 Available validation rules include required values, non-empty strings and collections, ranges, regular-expression patterns, past/future dates, and custom validators.
-
-## Middleware
-
-Middleware is implemented with `HttpWrapper`. Wrappers receive an `HttpRequest`, can inspect or mutate it, and then call the next step in the chain.
-
-```swift
-struct AuthWrapper: HttpWrapper {
-  let token: String
-
-  func send(
-    _ request: HttpRequest,
-    next: @Sendable (HttpRequest) async throws -> HttpResponse<Data>
-  ) async throws -> HttpResponse<Data> {
-    var request = request
-    request.headers.append(HttpHeader(.authorization, "Bearer \(token)").erased)
-    return try await next(request)
-  }
-}
-```
-
-Register and activate wrappers through context:
-
-```swift
-let api = StoreAPI("api.example.com")
-  .wrap(.auth, AuthWrapper(token: token))
-```
-
-Routes can activate or deactivate registered wrappers:
-
-```swift
-@Path
-@Wrap(.auth)
-struct Private {}
-
-@Path
-@Unwrap(.auth)
-struct Public {}
-```
 
 ## Under The Hood
 
