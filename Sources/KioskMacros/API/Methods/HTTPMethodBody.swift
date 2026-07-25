@@ -346,7 +346,7 @@ private struct EndpointContract {
 
       members.append(
         """
-        struct Content: Serializable, HTTPContentKeyProviding {
+        struct Content: WireCodable, HTTPContentKeyProviding {
         \(raw: fields)
 
             static let contentKeys: [String: String] = [\(raw: contentKeysExpression)]

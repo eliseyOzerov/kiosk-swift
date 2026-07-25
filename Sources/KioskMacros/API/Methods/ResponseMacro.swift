@@ -36,7 +36,7 @@ public struct StatusMacro: MemberMacro, ExtensionMacro {
       return []
     }
 
-    return try EndpointContractSerialization.generatedMembers(
+    return try EndpointContractWire.generatedMembers(
       of: node,
       providingMembersOf: declaration,
       conformingTo: protocols,
@@ -51,7 +51,7 @@ public struct StatusMacro: MemberMacro, ExtensionMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
-    try EndpointContractSerialization.generatedExtensions(
+    try EndpointContractWire.generatedExtensions(
       of: node,
       attachedTo: declaration,
       providingExtensionsOf: type,

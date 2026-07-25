@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Context base
 
-/// Fluent HTTP client context with URL, headers, options, serialization, errors, and wrappers.
+/// Fluent HTTP client context with URL, headers, options, wire, errors, and wrappers.
 public struct HttpContext: RequestContext, WrapperContext, Sendable {
   /// The base session
   public var session: URLSession
@@ -16,8 +16,8 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
   public var accept: HTTPContentType?
   /// The options for the URL request
   public var options: HttpOptions
-  /// Serialization settings for this context
-  public var serialization: SerializationContext
+  /// Wire settings for this context
+  public var wire: WireSpec
   /// Error handling for this context
   public var errors: HttpErrorDecoding
   /// Middleware for this context
@@ -30,7 +30,7 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
     contentType: HTTPContentType? = nil,
     accept: HTTPContentType? = nil,
     options: HttpOptions = .init(),
-    serialization: SerializationContext = .default,
+    wire: WireSpec = .default,
     errors: HttpErrorDecoding = .init(),
     wrappers: WrapperRegistry<any HttpWrapper> = .init()
   ) {
@@ -40,7 +40,7 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
     self.contentType = contentType
     self.accept = accept
     self.options = options
-    self.serialization = serialization
+    self.wire = wire
     self.errors = errors
     self.wrappers = wrappers
   }
@@ -163,29 +163,29 @@ public struct HttpErrorDecoding: Sendable {
     statusCode: HTTPStatusCode,
     data: Data,
     response: HTTPURLResponse,
-    serialization: SerializationContext
+    wire: WireSpec
   ) throws -> (any Swift.Error)? {
     let decoder = statusDecoders[statusCode] ?? classDecoders[statusCode.statusClass]
-    return try decoder?.decode(data, response, serialization)
+    return try decoder?.decode(data, response, wire)
   }
 }
 
 /// Type-erased decoder for converting HTTP error bodies into Swift errors.
 public struct HttpErrorDecoder: Sendable {
   private let decodeError:
-    @Sendable (Data, HTTPURLResponse, SerializationContext) throws -> any Swift.Error
+    @Sendable (Data, HTTPURLResponse, WireSpec) throws -> any Swift.Error
 
   public init<Failure: Decodable & Swift.Error>(_ failure: Failure.Type) {
-    decodeError = { data, _, serialization in
+    decodeError = { data, _, wire in
       let decoder = JSONDecoder()
-      decoder.userInfo[.serializationContext] = serialization
+      decoder.userInfo[.wireSpec] = wire
       return try decoder.decode(Failure.self, from: data)
     }
   }
 
   public init(
     _ decodeError:
-      @escaping @Sendable (Data, HTTPURLResponse, SerializationContext) throws -> any Swift.Error
+      @escaping @Sendable (Data, HTTPURLResponse, WireSpec) throws -> any Swift.Error
   ) {
     self.decodeError = decodeError
   }
@@ -193,9 +193,9 @@ public struct HttpErrorDecoder: Sendable {
   public func decode(
     _ data: Data,
     _ response: HTTPURLResponse,
-    _ serialization: SerializationContext
+    _ wire: WireSpec
   ) throws -> any Swift.Error {
-    try decodeError(data, response, serialization)
+    try decodeError(data, response, wire)
   }
 }
 
@@ -242,10 +242,10 @@ public enum HTTPContentEncoder {
   public static func encode<Content>(
     _ content: Content,
     as contentType: HTTPContentType,
-    serialization: SerializationContext
+    wire: WireSpec
   ) throws -> Data {
     if contentType.isJSON {
-      return try encodeJSON(content, serialization: serialization)
+      return try encodeJSON(content, wire: wire)
     }
 
     if contentType.isForm {
@@ -275,14 +275,14 @@ public enum HTTPContentEncoder {
 
   private static func encodeJSON<Content>(
     _ content: Content,
-    serialization: SerializationContext
+    wire: WireSpec
   ) throws -> Data {
     guard let encodable = content as? any Encodable else {
       throw HttpContext.Error.unsupportedContentType(.json)
     }
 
     let encoder = JSONEncoder()
-    encoder.userInfo[.serializationContext] = serialization
+    encoder.userInfo[.wireSpec] = wire
     return try encoder.encode(AnyEncodable(encodable))
   }
 
@@ -401,9 +401,33 @@ extension HttpContext {
     return context
   }
 
-  public func serialization(_ serialization: SerializationContext) -> HttpContext {
+  public func wire(_ wire: WireSpec) -> HttpContext {
     var context = self
-    context.serialization = serialization
+    context.wire = wire
+    return context
+  }
+
+  public func codec(_ codec: WireCodec) -> HttpContext {
+    var context = self
+    context.wire = context.wire.codec(codec)
+    return context
+  }
+
+  public func rename(_ renaming: FieldRenamingStrategy) -> HttpContext {
+    var context = self
+    context.wire = context.wire.renaming(renaming)
+    return context
+  }
+
+  public func format<Value>(_ type: Value.Type, _ format: WireFormat) -> HttpContext {
+    var context = self
+    context.wire = context.wire.format(type, format)
+    return context
+  }
+
+  public func wireDefault<Value>(_ type: Value.Type, _ value: Value) -> HttpContext {
+    var context = self
+    context.wire = context.wire.default(type, value)
     return context
   }
 
@@ -588,7 +612,7 @@ extension HttpContext {
     }
 
     let encoder = JSONEncoder()
-    encoder.userInfo[.serializationContext] = serialization
+    encoder.userInfo[.wireSpec] = wire
     let body = try encoder.encode(requestBody)
     return try await send(
       method: method,
@@ -606,7 +630,7 @@ extension HttpContext {
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
-      serialization: serialization
+      wire: wire
     )
     return try await send(
       method: method,
@@ -643,7 +667,7 @@ extension HttpContext {
     }
 
     let encoder = JSONEncoder()
-    encoder.userInfo[.serializationContext] = serialization
+    encoder.userInfo[.wireSpec] = wire
     let body = try encoder.encode(requestBody)
     return try await send(method: method, body: body, headers: [HttpHeader(.contentType, .json).erased])
   }
@@ -656,7 +680,7 @@ extension HttpContext {
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
-      serialization: serialization
+      wire: wire
     )
     return try await send(method: method, body: body, headers: [HttpHeader(.contentType, contentType).erased])
   }
@@ -720,7 +744,7 @@ extension HttpContext {
         statusCode: status,
         data: data,
         response: httpResponse,
-        serialization: serialization
+        wire: wire
       ) {
         throw error
       }
@@ -743,7 +767,7 @@ extension HttpContext {
     from response: Response<Data>
   ) throws -> Response<ResponseBody> {
     let decoder = JSONDecoder()
-    decoder.userInfo[.serializationContext] = serialization
+    decoder.userInfo[.wireSpec] = wire
     return Response(
       body: try decoder.decode(ResponseBody.self, from: response.body),
       status: response.status,
@@ -772,7 +796,7 @@ extension HttpContext {
       statusCode: response.status,
       data: response.body,
       response: httpResponse,
-      serialization: serialization
+      wire: wire
     ) {
       throw error
     }

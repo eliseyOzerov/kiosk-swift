@@ -284,6 +284,72 @@ struct WrapperAttribute {
   }
 }
 
+/// Parsed scoped wire codec attribute payload.
+struct CodecAttribute {
+  let codec: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
+      AttributeArgument.secondArgument(in: attribute) == nil
+    else {
+      return nil
+    }
+
+    codec = firstArgument
+  }
+}
+
+/// Parsed scoped wire field renaming attribute payload.
+struct RenameAttribute {
+  let renaming: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
+      AttributeArgument.secondArgument(in: attribute) == nil
+    else {
+      return nil
+    }
+
+    renaming = firstArgument
+  }
+}
+
+/// Parsed scoped value format attribute payload.
+struct ScopedFormatAttribute {
+  let type: String
+  let format: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
+      let secondArgument = AttributeArgument.secondArgument(in: attribute),
+      firstArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(".self")
+    else {
+      return nil
+    }
+
+    type = firstArgument.replacingOccurrences(of: ".self", with: "")
+    format = secondArgument
+  }
+}
+
+/// Parsed scoped default attribute payload.
+struct ScopedDefaultAttribute {
+  let type: String
+  let value: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
+      let secondArgument = AttributeArgument.secondArgument(in: attribute),
+      firstArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(".self")
+    else {
+      return nil
+    }
+
+    type = firstArgument.replacingOccurrences(of: ".self", with: "")
+    value = secondArgument
+  }
+}
+
 struct RouteAttribute {
   let path: String?
 

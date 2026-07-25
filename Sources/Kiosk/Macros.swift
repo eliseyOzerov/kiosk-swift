@@ -90,7 +90,7 @@ public macro Part(_ name: String? = nil) =
 
 /// Registers a scoped error body type for an HTTP status code.
 @attached(member, names: arbitrary)
-@attached(extension, conformances: Serializable)
+@attached(extension, conformances: WireCodable)
 public macro Status(_ status: HTTPStatusCode) =
   #externalMacro(module: "KioskMacros", type: "StatusMacro")
 
@@ -127,25 +127,45 @@ public macro Delete(_ path: String? = nil) =
 @attached(peer)
 public macro Key(_ name: Any) = #externalMacro(module: "KioskMacros", type: "KeyMacro")
 
-// MARK: - Serialization macros
+// MARK: - Wire macros
 
-/// Generates Codable implementation using Kiosk serialization metadata.
+/// Sets the inherited wire codec for an API path context or endpoint.
 @attached(member, names: arbitrary)
-@attached(extension, conformances: Serializable)
-public macro Serializable() = #externalMacro(module: "KioskMacros", type: "SerializableMacro")
+public macro Codec(_ codec: WireCodec) =
+  #externalMacro(module: "KioskMacros", type: "CodecMacro")
 
-/// Overrides a serialized field name.
+/// Sets the inherited wire field renaming strategy for an API path context or endpoint.
+@attached(member, names: arbitrary)
+public macro Rename(_ renaming: FieldRenamingStrategy) =
+  #externalMacro(module: "KioskMacros", type: "RenameMacro")
+
+/// Generates Codable implementation using Kiosk wire metadata.
+@attached(member, names: arbitrary)
+@attached(extension, conformances: WireCodable)
+public macro Wire() = #externalMacro(module: "KioskMacros", type: "WireMacro")
+
+/// Overrides a wire field name.
 @attached(peer)
 public macro Field(_ name: String) = #externalMacro(module: "KioskMacros", type: "FieldMacro")
 
-/// Overrides a serialized field format.
+/// Overrides a wire field format.
 @attached(peer)
-public macro Format(_ format: SerializationFormat) =
+public macro Format(_ format: WireFormat) =
   #externalMacro(module: "KioskMacros", type: "FormatMacro")
 
-/// Provides a serialized field default.
+/// Sets the inherited wire value format for a type.
+@attached(member, names: arbitrary)
+public macro Format<Value>(_ type: Value.Type, _ format: WireFormat) =
+  #externalMacro(module: "KioskMacros", type: "FormatMacro")
+
+/// Provides a wire field default.
 @attached(peer)
 public macro Default(_ value: Any) =
+  #externalMacro(module: "KioskMacros", type: "DefaultMacro")
+
+/// Sets the inherited wire default for a type.
+@attached(member, names: arbitrary)
+public macro Default<Value>(_ type: Value.Type, _ value: Value) =
   #externalMacro(module: "KioskMacros", type: "DefaultMacro")
 
 // MARK: - Validation macros

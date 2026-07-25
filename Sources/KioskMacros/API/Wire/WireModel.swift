@@ -3,12 +3,12 @@ import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-struct SerializableModel {
-  private let properties: [SerializableProperty]
+struct WireModel {
+  private let properties: [WireProperty]
   private let declaresInitializer: Bool
 
   init?(_ declaration: some DeclGroupSyntax, context: some MacroExpansionContext) {
-    let properties = declaration.memberBlock.members.flatMap { member -> [SerializableProperty] in
+    let properties = declaration.memberBlock.members.flatMap { member -> [WireProperty] in
       guard let variable = member.decl.as(VariableDeclSyntax.self),
         !variable.modifiers.contains(where: { $0.name.text == "static" }),
         variable.bindings.count == 1,
@@ -22,17 +22,17 @@ struct SerializableModel {
 
       let formatAttribute = variable.attribute(named: "Format")
       let defaultAttribute = variable.attribute(named: "Default")
-      let serializableType = SerializableType(type)
+      let wireType = WireType(type)
 
       if let formatAttribute {
-        Self.validate(format: formatAttribute, for: serializableType, in: context)
+        Self.validate(format: formatAttribute, for: wireType, in: context)
       }
       if let defaultAttribute {
-        Self.validate(default: defaultAttribute, for: serializableType, in: context)
+        Self.validate(default: defaultAttribute, for: wireType, in: context)
       }
 
       return [
-        SerializableProperty(
+        WireProperty(
           name: pattern.identifier.text,
           type: type,
           fieldName: variable.attribute(named: "Field").flatMap(
@@ -51,7 +51,7 @@ struct SerializableModel {
 
   private static func validate(
     format attribute: AttributeSyntax,
-    for type: SerializableType,
+    for type: WireType,
     in context: some MacroExpansionContext
   ) {
     guard let format = AttributeArgument.firstArgument(in: attribute) else {
@@ -74,7 +74,7 @@ struct SerializableModel {
 
   private static func validate(
     default attribute: AttributeSyntax,
-    for type: SerializableType,
+    for type: WireType,
     in context: some MacroExpansionContext
   ) {
     guard let defaultValue = AttributeArgument.firstArgument(in: attribute) else {
@@ -131,8 +131,8 @@ struct SerializableModel {
 
     return """
       init(from decoder: Decoder) throws {
-          let serialization = SerializationContext(decoder: decoder)
-          let container = try decoder.container(keyedBy: SerializationKey.self)
+          let wire = WireSpec(decoder: decoder)
+          let container = try decoder.container(keyedBy: WireKey.self)
       \(raw: assignments)
       }
       """
@@ -143,15 +143,15 @@ struct SerializableModel {
 
     return """
       func encode(to encoder: Encoder) throws {
-          let serialization = SerializationContext(encoder: encoder)
-          var container = encoder.container(keyedBy: SerializationKey.self)
+          let wire = WireSpec(encoder: encoder)
+          var container = encoder.container(keyedBy: WireKey.self)
       \(raw: statements)
       }
       """
   }
 }
 
-private struct SerializableType {
+private struct WireType {
   let raw: String
   let name: String
   let isOptional: Bool
@@ -181,12 +181,16 @@ private struct SerializableType {
 
   func supports(format: String) -> Bool {
     switch normalizedFormat(format) {
-    case ".json":
+    case ".native", ".json":
       return true
-    case ".iso8601", ".secondsSince1970", ".millisecondsSince1970", ".custom":
+    case ".iso8601", ".secondsSince1970", ".millisecondsSince1970":
       return name == "Date"
+    case ".custom":
+      return true
     case ".string":
-      return ["String", "Date", "Bool", "URL", "UUID", "Decimal"].contains(name)
+      return ["String", "Date", "Bool", "URL", "UUID", "Decimal", "Data"].contains(name)
+    case ".base64":
+      return name == "Data"
     default:
       return false
     }
@@ -252,7 +256,7 @@ extension String {
   }
 }
 
-private struct SerializableProperty {
+private struct WireProperty {
   let name: String
   let type: String
   let fieldName: String?
@@ -265,16 +269,16 @@ private struct SerializableProperty {
 
     if let defaultValue {
       return
-        "\(name) = try serialization.decode(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument), default: \(defaultValue))"
+        "\(name) = try wire.decode(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument), default: \(defaultValue))"
     }
 
     if isOptional {
       return
-        "\(name) = try serialization.decodeIfPresent(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
+        "\(name) = try wire.decodeIfPresent(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
     }
 
     return
-      "\(name) = try serialization.decode(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
+      "\(name) = try wire.decode(\(decodedType).self, from: container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
   }
 
   var encodeStatement: String {
@@ -283,11 +287,11 @@ private struct SerializableProperty {
 
     if isOptional {
       return
-        "try serialization.encodeIfPresent(\(name), to: &container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
+        "try wire.encodeIfPresent(\(name), to: &container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
     }
 
     return
-      "try serialization.encode(\(name), to: &container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
+      "try wire.encode(\(name), to: &container, forField: \"\(name)\"\(fieldArgument)\(formatArgument))"
   }
 
   private var isOptional: Bool {

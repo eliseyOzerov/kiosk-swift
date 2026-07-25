@@ -1,10 +1,11 @@
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-public struct FormatMacro: PeerMacro {
+public struct CodecMacro: MemberMacro {
   public static func expansion(
     of node: AttributeSyntax,
-    providingPeersOf declaration: some DeclSyntaxProtocol,
+    providingMembersOf declaration: some DeclGroupSyntax,
+    conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
     []

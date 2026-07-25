@@ -2,13 +2,13 @@
 
 ## Premise
 
-Kiosk is a lean Swift package for declaring discoverable REST clients as nested route trees. `HttpContext` is the request configuration driver, and macros generate the repetitive route, endpoint, request, response, serialization, and validation code.
+Kiosk is a lean Swift package for declaring discoverable REST clients as nested route trees. `HttpContext` is the request configuration driver, and macros generate the repetitive route, endpoint, request, response, wire, and validation code.
 
 ## Public Macro Inventory
 
 - API tree: `@Api`, `@Path`, `@Param`. `@Api` can seed root URL defaults with the same `UrlBuilder` API used by generated initializers.
 - HTTP contracts: `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Query`, `@Header`, `@Content`, `@Part`, `@Status`, `@Wrap`, `@Unwrap`.
-- Serialization: `@Serializable`, `@Field(_:)`, `@Format`, `@Default`.
+- Wire: `@Wire`, `@Codec`, `@Rename`, `@Field(_:)`, `@Format`, `@Default`.
 - Validation: `@Validatable`, `@Required`, `@NonEmpty`, `@Range`, `@Pattern`, `@Past`, `@Future`, `@Validate`.
 - Kept temporarily for field naming: `@Key`.
 - Removed before v0.1: `@Route`, `@Accept`, and dictionary/value helper macros other than `@Key`.
@@ -17,8 +17,8 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 
 - Request configuration: `HttpContext`, `RequestContext`, `WrapperKey`, `WrapperRegistry`, `HttpWrapper`, `HttpOptions`.
 - HTTP primitives: `HTTPMethod`, `HttpHeaderKey`, `HttpHeader`, `AnyHttpHeader`, `HTTPContentType`, `HTTPStatusCode`, `HttpRequest`, `HttpResponse`.
-- URL and encoding: `UrlBuilder`, `UrlQueryEncoder`, `HttpHeaderEncoder`, `HTTPContentEncoder`, `SerializationContext`.
-- Local models: `Serializable`, `Validatable`, `ValidationContext`.
+- URL and encoding: `UrlBuilder`, `UrlQueryEncoder`, `HttpHeaderEncoder`, `HTTPContentEncoder`, `WireSpec`.
+- Local models: `WireCodable`, `Validatable`, `ValidationContext`.
 - Experimental: `WsContext` and `WsOptions` are present but not documented as v0.1 public claims.
 
 ## Claim To Test Map
@@ -27,7 +27,7 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 - Scoped `HttpContext` configuration: `testApiMacroConfigurationBuildsDefaultContext`, `testContentMetadataInheritsAndOverridesAcrossPathTree`, `testAcceptHeaderReachesFinalURLRequest`, `testHttpContextCanConfigureWrappersWithoutExternalProducts`, `testApiProxyMethodsRebuildChildContexts`.
 - REST endpoint contract generation: `testGetMacroBuildsRequestWithQueryParameters`, `testPostMacroBuildsRequestContent`, `testEndpointStructMacrosBuildComprehensiveAPI`, `testEndpointStructMacrosReturnDeclaredResults`.
 - Wrapper behavior: `testWrapAndUnwrapMacrosScopeRegisteredWrappers`, `testWrappersRunInOrderAndCanMutateGeneratedRequests`, `testGeneratedEndpointsAndHandwrittenContextUseSameWrapperPipeline`, `testApiProxyMethodsCanRegisterMiddleware`, `testRouteAndEndpointProxyMethodsCanUpdateRequests`.
-- Single import and scoped model serialization: `testSingleImportExposesSerializationMacros`, `testSerializationContextDrivesLocalModelCoding`, `testApiSerializationContextDrivesGeneratedJSONContent`, `testSingleImportExposesValidationMacros`.
+- Single import and scoped model wire: `testSingleImportExposesWireMacros`, `testWireSpecDrivesLocalModelCoding`, `testApiWireSpecDrivesGeneratedJSONContent`, `testScopedWireMacrosDriveGeneratedJSONContent`, `testSingleImportExposesValidationMacros`.
 
 ## Pre-release Checklist
 

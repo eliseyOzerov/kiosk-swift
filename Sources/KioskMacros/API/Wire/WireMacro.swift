@@ -2,14 +2,14 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-public struct SerializableMacro: MemberMacro, ExtensionMacro {
+public struct WireMacro: MemberMacro, ExtensionMacro {
   public static func expansion(
     of node: AttributeSyntax,
     providingMembersOf declaration: some DeclGroupSyntax,
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
-    guard let model = SerializableModel(declaration, context: context) else {
+    guard let model = WireModel(declaration, context: context) else {
       return []
     }
 
@@ -24,13 +24,13 @@ public struct SerializableMacro: MemberMacro, ExtensionMacro {
     in context: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
     let genericWhereClause = declaration.genericParameterNames
-      .map { "\($0): Serializable" }
+      .map { "\($0): WireCodable" }
       .joined(separator: ", ")
     let whereClause = genericWhereClause.isEmpty ? "" : " where \(genericWhereClause)"
 
     return [
       try ExtensionDeclSyntax(
-        "extension \(raw: type.trimmedDescription): Serializable\(raw: whereClause) {}")
+        "extension \(raw: type.trimmedDescription): WireCodable\(raw: whereClause) {}")
     ]
   }
 }

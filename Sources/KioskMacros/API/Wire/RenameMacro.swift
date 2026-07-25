@@ -1,10 +1,11 @@
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-public struct DefaultMacro: PeerMacro {
+public struct RenameMacro: MemberMacro {
   public static func expansion(
     of node: AttributeSyntax,
-    providingPeersOf declaration: some DeclSyntaxProtocol,
+    providingMembersOf declaration: some DeclGroupSyntax,
+    conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
     []

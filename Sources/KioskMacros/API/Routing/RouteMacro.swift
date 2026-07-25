@@ -126,8 +126,28 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func serialization(_ serialization: SerializationContext) -> Self {
-          Self(context: context.serialization(serialization))
+      func wire(_ wire: WireSpec) -> Self {
+          Self(context: context.wire(wire))
+      }
+      """,
+      """
+      func codec(_ codec: WireCodec) -> Self {
+          Self(context: context.codec(codec))
+      }
+      """,
+      """
+      func rename(_ renaming: FieldRenamingStrategy) -> Self {
+          Self(context: context.rename(renaming))
+      }
+      """,
+      """
+      func format<Value>(_ type: Value.Type, _ format: WireFormat) -> Self {
+          Self(context: context.format(type, format))
+      }
+      """,
+      """
+      func wireDefault<Value>(_ type: Value.Type, _ value: Value) -> Self {
+          Self(context: context.wireDefault(type, value))
       }
       """,
       """
@@ -305,6 +325,22 @@ enum RouteExpansion {
       case "Unwrap":
         if let wrapper = WrapperAttribute(attribute) {
           expression += "\n    .unwrap(\(wrapper.key))"
+        }
+      case "Codec":
+        if let codec = CodecAttribute(attribute) {
+          expression += "\n    .codec(\(codec.codec))"
+        }
+      case "Rename":
+        if let rename = RenameAttribute(attribute) {
+          expression += "\n    .rename(\(rename.renaming))"
+        }
+      case "Format":
+        if let format = ScopedFormatAttribute(attribute) {
+          expression += "\n    .format(\(format.type).self, \(format.format))"
+        }
+      case "Default":
+        if let defaultValue = ScopedDefaultAttribute(attribute) {
+          expression += "\n    .wireDefault(\(defaultValue.type).self, \(defaultValue.value))"
         }
       default:
         break

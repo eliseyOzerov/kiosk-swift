@@ -41,7 +41,7 @@ public struct ValidationError: LocalizedError, Sendable {
   }
 }
 
-/// Helper for validating request and serialized model fields.
+/// Helper for validating request and wire model fields.
 public struct ValidationContext: Sendable {
   public init() {}
 

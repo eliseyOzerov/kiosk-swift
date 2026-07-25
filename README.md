@@ -2,7 +2,7 @@
 
 Kiosk is a Swift-first way to declare discoverable REST clients with scoped request configuration.
 
-Your client should look like the API it talks to: a route tree you can navigate in Swift, with endpoint-local request and response models, and inherited configuration for headers, content types, serialization, validation, and middleware.
+Your client should look like the API it talks to: a route tree you can navigate in Swift, with endpoint-local request and response models, and inherited configuration for headers, content types, wire, validation, and middleware.
 
 ## Building Requests
 
@@ -38,7 +38,7 @@ struct StoreAPI {
 }
 ```
 
-`HttpContext` is the core request configuration object. It carries the current URL builder, headers, content-type defaults, accepted response type, request options, serialization settings, error decoding, middleware registry, and `URLSession`.
+`HttpContext` is the core request configuration object. It carries the current URL builder, headers, content-type defaults, accepted response type, request options, wire settings, error decoding, middleware registry, and `URLSession`.
 
 ### `@Path`
 
@@ -292,373 +292,65 @@ struct StoreAPI {
 
 Wrappers run in active order and each wrapper decides whether to forward the request. That makes middleware suitable for auth headers, request IDs, retries, logging, response capture in tests, and endpoint-specific policy changes.
 
-## Callsites
+## Wire
 
-Kiosk is designed around callsites that reveal the API shape:
+Kiosk includes wire macros because REST clients usually need models that differ slightly from local Swift shape. `HttpContext` carries a plain `WireSpec`, and generated `@Wire` models read that spec from `JSONEncoder` and `JSONDecoder`.
 
-```swift
-let api = StoreAPI("api.example.com")
-
-let search = try await api.users.search(q: "ada")
-let profile = try await api.users.user(userId: 42).profile()
-let session = try await api.sessions.login(email: email, password: password)
-```
-
-Instead of spreading paths and request construction across the app:
+Wire policy can be declared directly on an API, path, or endpoint:
 
 ```swift
-try await client.get("/users/\(id)/posts", query: ["q": query])
-```
-
-Kiosk keeps the path, method, parameters, body, response, and request configuration together in Swift source.
-
-## Implementing A Client
-
-An API starts with an `@Api` or `@Path` root that stores an `HttpContext`. Nested `@Path` structs become route nodes, and endpoint structs use HTTP method macros such as `@Get` and `@Post`.
-
-```swift
-import Kiosk
-
 @Api(.host("api.example.com"))
-@Header(.contentType, .json)
-@Header(.accept, .json)
-struct StoreAPI {
-  @Path
-  struct Users {
-    @Get
-    @Query("q", String.self)
-    struct Search {
-      @Serializable
-      struct Response {
-        var users: [User]
-      }
-    }
-
-    @Path
-    @Param("user-id", Int.self)
-    struct User {
-      @Get
-      struct Profile {
-        @Serializable
-        struct Response {
-          var id: Int
-          var name: String
-        }
-      }
-    }
-  }
-
-  @Path
-  struct Sessions {
-    @Post
-    @Header(.contentType, .form)
-    struct Login {
-      struct Content {
-        let email: String
-        let password: String
-      }
-
-      typealias Response = Data
-    }
-  }
-}
-```
-
-The generated client keeps a copy of `HttpContext` at every node. Route nodes refine the context by appending path components or changing configuration. Endpoint calls turn that context into an `HttpRequest`, run wrappers, send a `URLRequest` through `URLSession`, and decode the response into the endpoint's declared result shape.
-
-## Request Anatomy
-
-Kiosk can express the main parts of a REST request:
-
-- Base URL through `@Api`, generated initializers, or `HttpContext`.
-- `URLSession` through `HttpContext`.
-- Static path segments through nested `@Path` types.
-- Dynamic path segments through `@Param`.
-- HTTP method through `@Get`, `@Post`, `@Put`, `@Patch`, or `@Delete`.
-- Query values through `@Query` attributes or a nested `@Query` type.
-- Headers through `@Header` attributes or a nested `Headers` type.
-- Request body through nested `Content`, `typealias Content`, or `@Content(Type.self)`.
-- Content encoding through `@Header(.contentType, ...)`; accepted response type through `@Header(.accept, ...)`.
-- Shared non-success error decoding through scoped `@Status` models.
-- Middleware through `HttpWrapper`, `.wrap(...)`, `@Wrap`, and `@Unwrap`.
-
-## API Configuration
-
-`@Api` can seed the root URL for the generated default initializer using the same `UrlBuilder` API accepted by the generated `url:` initializer:
-
-```swift
-@Api(.host("api.example.com").scheme(.https).adding(path: "v1"))
+@Codec(.json)
+@Rename(.snakeCase)
+@Format(Date.self, .secondsSince1970)
+@Format(Bool.self, .string)
+@Default([String].self, [])
 struct StoreAPI {}
-
-let api = StoreAPI()
 ```
 
-You can still override that default at construction time:
+`@Codec` chooses the document codec for the scope. JSON is the default and the only fully implemented codec for v0.1; YAML and XML are reserved in the type system.
+
+`@Rename` chooses the field renaming policy for the scope. Available strategies include identity, camel case, Pascal case, snake case, screaming snake case, and kebab case.
+
+`@Format(Type.self, value)` sets a scoped format for a Swift type. `@Format(value)` on a property wins over the scoped format.
 
 ```swift
-let api = StoreAPI("api.example.com")
-let staging = StoreAPI(url: .host("staging.example.com").scheme(.http).adding(path: "v1"))
-```
-
-`HttpContext` is the request configuration driver. It stores the base URL, session, headers, content-type defaults, accepted response type, request options, serialization settings, error decoding, and wrapper registry.
-
-Generated API, route, and endpoint values proxy the common `HttpContext` configuration methods, so most callsites do not need to touch `context` directly:
-
-```swift
-let api = StoreAPI("api.example.com")
-  .adding(header: HttpHeader(.accept, .json))
-  .wrap(.auth, AuthWrapper(token: token))
-
-let search = api.users.search
-  .adding(query: UrlQueryItem(name: "locale", value: "en"))
-```
-
-For custom sessions, wrappers, error decoding, or request options, construct an `HttpContext` explicitly:
-
-```swift
-let api = StoreAPI(
-  context: HttpContext(session: session, url: .host("api.example.com"))
-    .wrap(.auth, AuthWrapper(token: token))
-)
-```
-
-Configuration flows through the tree. Defaults can live at the root, and routes or endpoints can override them:
-
-```swift
-@Api
-@Header(.contentType, .json)
-@Header(.accept, .json)
-struct API {
-  @Path
-  struct Sessions {
-    @Post
-    @Header(.contentType, .form)
-    struct Login {
-      struct Content {
-        let email: String
-        let password: String
-      }
-
-      typealias Response = Data
-    }
-  }
-}
-```
-
-Here the API defaults to JSON content, while `Sessions.Login` sends form-encoded content.
-
-## Paths And Parameters
-
-Use `@Path` to create route nodes. If no explicit segment is provided, Kiosk derives the segment from the Swift type name.
-
-```swift
-@Path
-struct Users {
-  @Path
-  @Param("user-id", Int.self)
-  struct User {
-    @Path
-    struct Posts {}
-  }
-}
-```
-
-The generated callsite follows the route:
-
-```swift
-api.users.user(userId: 42).posts
-```
-
-Explicit path names are available when the remote API does not match Swift naming:
-
-```swift
-@Path("v1")
-struct V1 {}
-```
-
-## Requests And Data Models
-
-Endpoint structs use method macros to declare how a request is sent:
-
-```swift
-@Get
-@Query("q", String.self)
-@Header("X-Trace-ID", String.self, default: "trace")
-struct Search {
-  @Serializable
-  struct Response {
-    var items: [String]
-  }
-}
-```
-
-For request bodies, declare a nested `Content` type near the endpoint:
-
-```swift
-@Post
-@Header(.contentType, .json)
-struct CreatePost {
-  struct Content: Codable {
-    var title: String
-    var body: String
-  }
-
-  struct Response: Codable {
-    var id: UUID
-  }
-}
-```
-
-Larger payloads can be named explicitly:
-
-```swift
-@Post
-struct ReplacePost {
-  @Serializable
-  struct Content {
-    var title: String
-    var body: String
-  }
-
-  typealias Response = Data
-}
-```
-
-Shared non-success responses are registered as scoped errors:
-
-```swift
-@Api(.host("api.example.com"))
-struct StoreAPI {
-  @Status(.badRequest)
-  struct ValidationError: Error, Codable {
-    var message: String
-  }
-}
-```
-
-## Serialization
-
-Kiosk includes serialization macros because REST clients usually need wire models that differ slightly from local Swift shape. `@Serializable` generates `Codable` behavior and reads `SerializationContext` from `JSONEncoder` and `JSONDecoder`.
-
-```swift
-@Serializable
-struct Account {
-  @Field("display_name") var name: String
-  @Format(.string) var enabled: Bool
-  @Default(0) var loginCount: Int
-}
-```
-
-`@Field` overrides a single wire key. Without it, the active `SerializationContext` decides whether property names are used as-is or converted by a field renaming strategy.
-
-```swift
-@Serializable
-struct Profile {
-  @Field("display_name") var name: String
-}
-```
-
-`@Format` overrides how a single property is represented. Built-in formats cover JSON-native values, strings, ISO-8601 dates, Unix timestamps in seconds or milliseconds, and custom `DateFormatter` patterns.
-
-```swift
-@Serializable
+@Wire
 struct Session {
-  @Format(.secondsSince1970) var expiresAt: Date
-  @Format(.string) var enabled: Bool
+  @Format(.millisecondsSince1970)
+  var expiresAt: Date
+
+  var enabled: Bool
 }
 ```
 
-`@Default` supplies a value when a non-optional field is missing or null while decoding.
+`@Default(Type.self, value)` sets a scoped decode fallback for a Swift type. `@Default(value)` on a property wins for that property.
 
 ```swift
-@Serializable
+@Wire
 struct Page {
   @Default(1) var number: Int
-  @Default([]) var items: [Item]
+  var items: [Item]
 }
 ```
 
-Serialization can also be configured for a whole API subtree. Generated API, path, and endpoint values proxy `.serialization(...)`, so the same policy is used when encoding JSON request bodies, decoding JSON responses, and decoding registered error responses.
+`@Field` overrides one property's wire key and takes priority over scoped renaming.
+
+```swift
+@Wire
+struct Account {
+  @Field("display_name") var name: String
+}
+```
+
+The same policy can be configured at runtime through generated API, path, and endpoint proxy methods:
 
 ```swift
 let api = StoreAPI("api.example.com")
-  .serialization(
-    SerializationContext(
-      spec: SerializationSpec(
-        fields: SerializationFieldSpec(renaming: .snakeCase),
-        formats: SerializationFormatSpec(
-          date: .secondsSince1970,
-          bool: .string
-        )
-      )
-    )
-  )
+  .codec(.json)
+  .rename(.snakeCase)
+  .format(Date.self, .iso8601)
+  .wireDefault([String].self, [])
 ```
 
-Form and multipart request content currently use content key metadata rather than the full `@Serializable` encoder path. Use `@Key` for those field-name overrides until the content and serialization naming APIs are unified.
-
-## Client-Side Validation
-
-Validation is local model validation. It does not replace server validation, but it is useful before sending request bodies or accepting user-entered values.
-
-```swift
-@Validatable
-struct Signup {
-  @Required var email: String?
-  @Pattern(.email) var normalizedEmail: String?
-  @NonEmpty var password: String
-}
-```
-
-Available validation rules include required values, non-empty strings and collections, ranges, regular-expression patterns, past/future dates, and custom validators.
-
-## Under The Hood
-
-Kiosk's macros generate ordinary Swift around a small runtime:
-
-- Route macros generate context storage and child route accessors.
-- Parameter macros generate route functions that append dynamic path components.
-- Endpoint macros generate request `Content`, `Query`, `Headers`, and `Result` helpers.
-- Endpoint calls build an `HttpRequest`.
-- Wrappers run in active order and can mutate the request.
-- Transport converts the request to `URLRequest` and uses `URLSession`.
-- Response data is decoded into declared status cases, or throws on unexpected status.
-
-## Roadmap
-
-- First-class prepared request objects that can be built, inspected, updated, and sent later.
-- Function-style endpoint macros as shorthand over the same endpoint model.
-- DocC reference documentation.
-- Macro expansion tests for diagnostics and generated source shape.
-- More examples for auth, pagination, uploads, retries, idempotency keys, and status enums.
-- A public decision on WebSocket support.
-- Serialization cleanup: keep `@Key` temporarily, then decide whether `@Field` should cover query and content field names too.
-
-## Installation
-
-After the first release:
-
-```swift
-dependencies: [
-  .package(url: "https://github.com/ozerov-studio/kiosk-swift.git", from: "0.1.0")
-]
-```
-
-```swift
-.target(
-  name: "YourTarget",
-  dependencies: [
-    .product(name: "Kiosk", package: "kiosk-swift")
-  ]
-)
-```
-
-## Status
-
-Kiosk is being prepared for an initial `0.1.0` release. The REST client surface, macro behavior, and public naming are experimental until a `1.0.0` release.
-
-REST is the first-class focus. WebSocket runtime types exist, but they are not part of the documented v0.1 contract yet.
-
-## License
-
-Kiosk is available under the MIT license.
+Form and multipart request content currently use content key metadata rather than the full `@Wire` encoder path. Use `@Key` for those field-name overrides until the content and wire naming APIs are unified.

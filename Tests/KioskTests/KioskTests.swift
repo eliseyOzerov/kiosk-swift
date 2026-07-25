@@ -199,17 +199,17 @@ final class KioskTests: XCTestCase {
     XCTAssertNil(decoded.displayName)
   }
 
-  func testApiSerializationContextDrivesGeneratedJSONContent() async throws {
+  func testApiWireSpecDrivesGeneratedJSONContent() async throws {
     let recorder = RequestRecorder()
-    let serialization = SerializationContext(
-      spec: SerializationSpec(
-        fields: SerializationFieldSpec(renaming: .snakeCase),
-        formats: SerializationFormatSpec(date: .secondsSince1970, bool: .string)
-      )
+    let wire = WireSpec.json(
+      fields: .snakeCase,
+      values: .jsonDefault
+        .date(.secondsSince1970)
+        .bool(.string)
     )
     let api = StoreAPI(
       context: HttpContext(url: .host("example.com"))
-        .serialization(serialization)
+        .wire(wire)
         .wrap(.capture, RecordingWrapper(recorder: recorder))
     )
 
@@ -232,6 +232,33 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(object["display_name"] as? String, "Ada")
     XCTAssertEqual((object["created_at"] as? NSNumber)?.doubleValue, 1000)
     XCTAssertEqual(object["enabled"] as? String, "true")
+  }
+
+  func testScopedWireMacrosDriveGeneratedJSONContent() async throws {
+    let recorder = RequestRecorder()
+    let api = WiredAPI(
+      context: HttpContext(url: .host("example.com"))
+        .wrap(.capture, RecordingWrapper(recorder: recorder))
+    )
+
+    _ = try await api.events.create(
+      .init(
+        displayName: "Ada",
+        createdAt: Date(timeIntervalSince1970: 1000),
+        tags: ["swift"]
+      )
+    )
+    let recordedRequest = await recorder.last()
+    let request = try XCTUnwrap(recordedRequest)
+    let body = try XCTUnwrap(request.body)
+    let object = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: body) as? [String: Any]
+    )
+
+    XCTAssertEqual(request.method, .post)
+    XCTAssertEqual(object["display_name"] as? String, "Ada")
+    XCTAssertEqual((object["created_at"] as? NSNumber)?.doubleValue, 1000)
+    XCTAssertEqual(object["tags"] as? [String], ["swift"])
   }
 
   func testEndpointStructMacrosBuildComprehensiveAPI() async throws {
@@ -469,7 +496,7 @@ private struct StoreAPI {
 
     @Post
     struct Create {
-      @Serializable
+      @Wire
       struct Content: Equatable {
         let name: String
 
@@ -482,7 +509,7 @@ private struct StoreAPI {
 
     @Post
     struct TimedCreate {
-      @Serializable
+      @Wire
       struct Content: Equatable {
         let displayName: String
         let createdAt: Date
@@ -505,13 +532,35 @@ private struct ConfiguredAPI {
 @Api(url: .host("labeled.example.com"))
 private struct LabeledConfiguredAPI {}
 
+@Codec(.json)
+@Rename(.snakeCase)
+@Format(Date.self, .secondsSince1970)
+@Default([String].self, [])
+@Path
+private struct WiredAPI {
+  @Path
+  struct Events {
+    @Post
+    struct Create {
+      @Wire
+      struct Content: Equatable {
+        let displayName: String
+        let createdAt: Date
+        let tags: [String]
+      }
+
+      typealias Response = Data
+    }
+  }
+}
+
 @Header(.contentType, .json)
 @Header(.accept, .json)
 @Path
 private struct ComprehensiveAPI {
   @Path
   struct Posts {
-    @Serializable
+    @Wire
     struct MutationResponse: Equatable {
       let ok: Bool
     }
@@ -571,7 +620,7 @@ private struct ComprehensiveAPI {
         let createdAfter: Date
       }
 
-      @Serializable
+      @Wire
       struct Response: Equatable {
         let items: [String]
       }
@@ -669,7 +718,7 @@ private struct ContractAPI {
 
     @Get
     struct Profile {
-      @Serializable
+      @Wire
       struct Response: Equatable {
         let name: String
       }
