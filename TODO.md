@@ -6,16 +6,17 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 
 ## Public Macro Inventory
 
-- API tree: `@Api`, `@Path`, `@Route`, `@Param`. `@Api` can seed root URL defaults with the same `UrlBuilder` API used by generated initializers.
-- HTTP contracts: `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Query`, `@Header`, `@Content`, `@Accept`, `@Field(_:_: )`, `@Part`, `@Response`, `@Wrap`, `@Unwrap`.
+- API tree: `@Api`, `@Path`, `@Param`. `@Api` can seed root URL defaults with the same `UrlBuilder` API used by generated initializers.
+- HTTP contracts: `@Get`, `@Post`, `@Put`, `@Patch`, `@Delete`, `@Query`, `@Header`, `@Content`, `@Part`, `@Status`, `@Wrap`, `@Unwrap`.
 - Serialization: `@Serializable`, `@Field(_:)`, `@Format`, `@Default`.
 - Validation: `@Validatable`, `@Required`, `@NonEmpty`, `@Range`, `@Pattern`, `@Past`, `@Future`, `@Validate`.
-- Pre-release decision: dictionary and value helpers currently exist in source, but the README does not document them as part of Kiosk's v0.1 public promise.
+- Kept temporarily for field naming: `@Key`.
+- Removed before v0.1: `@Route`, `@Accept`, and dictionary/value helper macros other than `@Key`.
 
 ## Runtime Inventory
 
 - Request configuration: `HttpContext`, `RequestContext`, `WrapperKey`, `WrapperRegistry`, `HttpWrapper`, `HttpOptions`.
-- HTTP primitives: `HTTPMethod`, `HTTPHeaderFieldName`, `HttpHeader`, `HTTPContentType`, `HTTPStatusCode`, `HttpRequest`, `HttpResponse`.
+- HTTP primitives: `HTTPMethod`, `HttpHeaderKey`, `HttpHeader`, `AnyHttpHeader`, `HTTPContentType`, `HTTPStatusCode`, `HttpRequest`, `HttpResponse`.
 - URL and encoding: `UrlBuilder`, `UrlQueryEncoder`, `HttpHeaderEncoder`, `HTTPContentEncoder`, `SerializationContext`.
 - Local models: `Serializable`, `Validatable`, `ValidationContext`.
 - Experimental: `WsContext` and `WsOptions` are present but not documented as v0.1 public claims.
@@ -33,7 +34,7 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 - [x] Run `swift package dump-package`.
 - [x] Run `swift test`.
 - [x] Check package builds from a clean copy without local path dependencies.
-- [ ] Decide whether dictionary/value helper macros stay public, become internal, or move to another package.
+- [x] Remove dictionary/value helper macros from the v0.1 public surface, keeping `@Key` temporarily for field naming.
 - [ ] Create GitHub repo `ozerov-studio/kiosk-swift`.
 - [ ] Push the package source.
 - [ ] Tag `0.1.0`.

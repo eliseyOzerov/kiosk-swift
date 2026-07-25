@@ -111,29 +111,110 @@ struct LabeledTypeAttribute {
 struct HeaderAttribute {
   let sourceLabel: String
   let label: String
-  let nameExpression: String
+  let keyExpression: String
   let type: String
   let defaultValue: String?
 
   init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute) else {
+      return nil
+    }
+
+    let secondArgument = AttributeArgument.secondArgument(in: attribute)
+    let second = secondArgument?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let explicitType = second?.hasSuffix(".self") == true
+    let defaultArgument = second?.hasPrefix("default:") == true || second?.hasPrefix("defaultValue:") == true
+    let hasStaticValue = second != nil && !explicitType && !defaultArgument
+
+    if let literal = AttributeArgument.stringLiteral(firstArgument) {
+      guard explicitType, let secondArgument else {
+        return nil
+      }
+
+      sourceLabel = literal
+      label = literal.camelCasedIdentifier
+      type = secondArgument.replacingOccurrences(of: ".self", with: "")
+      keyExpression = "HttpHeaderKey<\(type)>.custom(\"\(literal)\", as: \(type).self)"
+      defaultValue = AttributeArgument.thirdArgument(in: attribute)?.macroDefaultValue
+    } else {
+      guard let headerType = Self.type(for: firstArgument) else {
+        return nil
+      }
+
+      guard !hasStaticValue else {
+        return nil
+      }
+
+      sourceLabel = firstArgument
+      label = firstArgument.headerMemberName?.camelCasedIdentifier ?? firstArgument.camelCasedIdentifier
+      type = explicitType
+        ? secondArgument!.replacingOccurrences(of: ".self", with: "")
+        : headerType
+      keyExpression = Self.keyExpression(for: firstArgument, type: type)
+      defaultValue = defaultArgument ? secondArgument?.macroDefaultValue : nil
+    }
+  }
+
+  static func type(for expression: String) -> String? {
+    switch expression.headerMemberName {
+    case "accept", "contentType":
+      return "HTTPContentType"
+    case "contentLength":
+      return "Int"
+    case .some:
+      return "String"
+    case .none:
+      return nil
+    }
+  }
+
+  static func keyExpression(for expression: String, type: String) -> String {
+    guard let member = expression.headerMemberName,
+      expression.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("."),
+      member.isSimpleSwiftIdentifier
+    else {
+      return expression
+    }
+
+    return "HttpHeaderKey<\(type)>.\(member)"
+  }
+}
+
+/// Parsed static HTTP header attribute payload for path context macros.
+struct StaticHeaderAttribute {
+  let header: String
+
+  static func all(in declaration: some DeclGroupSyntax) -> [StaticHeaderAttribute] {
+    declaration.attributes.compactMap { element in
+      guard let attribute = element.as(AttributeSyntax.self),
+        attribute.attributeName.trimmedDescription == "Header"
+      else {
+        return nil
+      }
+
+      return StaticHeaderAttribute(attribute)
+    }
+  }
+
+  init?(_ attribute: AttributeSyntax) {
     guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
-      let secondArgument = AttributeArgument.secondArgument(in: attribute)
+      let secondArgument = AttributeArgument.secondArgument(in: attribute),
+      !secondArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(".self"),
+      !secondArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("default:"),
+      !secondArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("defaultValue:")
     else {
       return nil
     }
 
     if let literal = AttributeArgument.stringLiteral(firstArgument) {
-      sourceLabel = literal
-      label = literal.camelCasedIdentifier
-      nameExpression = "\"\(literal)\""
+      header = "AnyHttpHeader(name: \"\(literal)\", value: String(describing: \(secondArgument)))"
     } else {
-      sourceLabel = firstArgument
-      label = firstArgument.headerMemberName?.camelCasedIdentifier ?? firstArgument.camelCasedIdentifier
-      nameExpression = firstArgument
+      let keyExpression = HeaderAttribute.keyExpression(
+        for: firstArgument,
+        type: HeaderAttribute.type(for: firstArgument) ?? "String"
+      )
+      header = "HttpHeader(\(keyExpression), \(secondArgument)).erased"
     }
-
-    type = secondArgument.replacingOccurrences(of: ".self", with: "")
-    defaultValue = AttributeArgument.thirdArgument(in: attribute)?.macroDefaultValue
   }
 }
 
@@ -161,10 +242,25 @@ struct StatusAttribute {
   }
 }
 
-/// Parsed HTTP content type attribute payload for endpoint and path macros.
+/// Parsed single-value request content attribute payload for endpoint macros.
 struct ContentAttribute {
+  let type: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard let firstArgument = AttributeArgument.firstArgument(in: attribute),
+      AttributeArgument.secondArgument(in: attribute) == nil,
+      firstArgument.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(".self")
+    else {
+      return nil
+    }
+
+    type = firstArgument.replacingOccurrences(of: ".self", with: "")
+  }
+}
+
+/// Parsed accepted response content type attribute payload.
+struct AcceptAttribute {
   let contentType: String
-  let valueType: String?
 
   init?(_ attribute: AttributeSyntax) {
     guard let firstArgument = AttributeArgument.firstArgument(in: attribute) else {
@@ -172,8 +268,6 @@ struct ContentAttribute {
     }
 
     contentType = firstArgument
-    valueType = AttributeArgument.secondArgument(in: attribute)?
-      .replacingOccurrences(of: ".self", with: "")
   }
 }
 

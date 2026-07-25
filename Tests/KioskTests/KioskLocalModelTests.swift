@@ -3,17 +3,6 @@ import Kiosk
 import XCTest
 
 final class KioskLocalModelTests: XCTestCase {
-  func testSingleImportExposesDictionaryAndValueMacros() {
-    let payload = LocalPayload(fromDict: ["name": "Kiosk", "kind": "primary"])
-    let dictionary = payload.toDict()
-    let decoded = LocalPayload(fromDict: dictionary)
-
-    XCTAssertEqual(dictionary["name"] as? String, "Kiosk")
-    XCTAssertEqual(dictionary["kind"] as? String, "primary")
-    XCTAssertEqual(decoded.name, payload.name)
-    XCTAssertEqual(decoded.kind, payload.kind)
-  }
-
   func testSingleImportExposesSerializationMacros() throws {
     let data = #"{"display_name":"Kiosk","enabled":"yes"}"#.data(using: .utf8)!
     let decoded = try JSONDecoder().decode(LocalRecord.self, from: data)
@@ -49,18 +38,6 @@ final class KioskLocalModelTests: XCTestCase {
       XCTAssertEqual((error as? ValidationError)?.field, "email")
     }
   }
-}
-
-@Dict
-struct LocalPayload: Equatable {
-  var name: String
-  @UseValue var kind: LocalKind
-}
-
-@Valuable(String.self)
-enum LocalKind: Equatable {
-  @Value("primary")
-  case primary
 }
 
 @Serializable

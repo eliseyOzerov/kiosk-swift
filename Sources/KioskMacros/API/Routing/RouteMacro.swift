@@ -86,7 +86,7 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func headers(_ headers: [HttpHeader]) -> Self {
+      func headers(_ headers: [AnyHttpHeader]) -> Self {
           Self(context: context.headers(headers))
       }
       """,
@@ -111,12 +111,17 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func adding(header: HttpHeader) -> Self {
+      func adding(header: AnyHttpHeader) -> Self {
           Self(context: context.adding(header: header))
       }
       """,
       """
-      func adding(headers: [HttpHeader]) -> Self {
+      func adding<Value: Sendable>(header: HttpHeader<Value>) -> Self {
+          Self(context: context.adding(header: header))
+      }
+      """,
+      """
+      func adding(headers: [AnyHttpHeader]) -> Self {
           Self(context: context.adding(headers: headers))
       }
       """,
@@ -128,11 +133,6 @@ enum ContextProxyExpansion {
       """
       func errors(_ errors: HttpErrorDecoding) -> Self {
           Self(context: context.errors(errors))
-      }
-      """,
-      """
-      func content(_ contentType: HTTPContentType) -> Self {
-          Self(context: context.content(contentType))
       }
       """,
       """
@@ -240,7 +240,7 @@ enum RouteExpansion {
     }
 
     let signature = parameters.map { "\($0.label): \($0.type)" }.joined(separator: ", ")
-    let expression = contextExpression(path: nil, parameters: parameters, declaration: declaration)
+    let expression = baseContextExpression(path: nil, parameters: parameters)
     return [
       """
       func callAsFunction(\(raw: signature)) -> Self {
@@ -255,6 +255,16 @@ enum RouteExpansion {
     parameters: [RouteParamArgument],
     declaration: some DeclGroupSyntax
   ) -> String {
+    decoratedContextExpression(
+      baseContextExpression(path: path, parameters: parameters),
+      for: declaration
+    )
+  }
+
+  static func baseContextExpression(
+    path: String?,
+    parameters: [RouteParamArgument]
+  ) -> String {
     var expression = "context"
 
     if let path {
@@ -265,7 +275,7 @@ enum RouteExpansion {
       expression += "\n    .adding(path: \(parameter.label))"
     }
 
-    return decoratedContextExpression(expression, for: declaration)
+    return expression
   }
 
   private static func decoratedContextExpression(
@@ -280,12 +290,12 @@ enum RouteExpansion {
       }
 
       switch attribute.attributeName.trimmedDescription {
-      case "Content":
-        if let content = ContentAttribute(attribute) {
-          expression += "\n    .content(\(content.contentType))"
+      case "Header":
+        if let header = StaticHeaderAttribute(attribute) {
+          expression += "\n    .adding(header: \(header.header))"
         }
       case "Accept":
-        if let accept = ContentAttribute(attribute) {
+        if let accept = AcceptAttribute(attribute) {
           expression += "\n    .accept(\(accept.contentType))"
         }
       case "Wrap":
@@ -299,6 +309,10 @@ enum RouteExpansion {
       default:
         break
       }
+    }
+
+    for status in StatusRegistration.all(in: declaration) {
+      expression += "\n    .throwing(\(status.type).self, for: \(status.statusExpression))"
     }
 
     return expression
@@ -316,7 +330,27 @@ enum RouteExpansion {
   }
 
   private static func pathAttribute(in declaration: some DeclGroupSyntax) -> AttributeSyntax? {
-    attribute(named: "Path", in: declaration) ?? attribute(named: "Route", in: declaration)
+    attribute(named: "Path", in: declaration)
+  }
+}
+
+private struct StatusRegistration {
+  let type: String
+  let statusExpression: String
+
+  static func all(in declaration: some DeclGroupSyntax) -> [StatusRegistration] {
+    declaration.memberBlock.members.compactMap { member in
+      guard let nested = member.decl.as(StructDeclSyntax.self),
+        let attribute = nested.attributes.lazy.compactMap({ $0.as(AttributeSyntax.self) }).first(where: {
+          $0.attributeName.trimmedDescription == "Status"
+        }),
+        let status = StatusAttribute(attribute)
+      else {
+        return nil
+      }
+
+      return StatusRegistration(type: nested.name.text, statusExpression: status.statusExpression)
+    }
   }
 }
 
@@ -334,10 +368,9 @@ struct RouteChild {
   }
 
   var initializer: String {
-    let expression = RouteExpansion.contextExpression(
+    let expression = RouteExpansion.baseContextExpression(
       path: path,
-      parameters: [],
-      declaration: declaration
+      parameters: []
     )
     return "        self.\(accessor) = \(childName)(context: \(expression))"
   }

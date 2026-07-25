@@ -136,26 +136,17 @@ enum HTTPMethodBody {
   {
     let responseCall: String
     if contract.hasContent {
-      responseCall = "try await requestContext.response(for: .\(method.rawValue), content: \(contract.contentExpression))"
+      responseCall = "try await requestContext.data(for: .\(method.rawValue), content: \(contract.contentExpression))"
     } else {
-      responseCall = "try await requestContext.response(for: .\(method.rawValue))"
+      responseCall = "try await requestContext.data(for: .\(method.rawValue))"
     }
 
-    let cases = contract.resultCases.map { resultCase in
-      """
-          case \(resultCase.statusExpression):
-              \(resultCase.returnExpression)
-      """
-    }
-    .joined(separator: "\n")
+    let successCase = contract.resultCases[0]
 
     return """
       let response = \(responseCall)
-      switch response.status {
-      \(cases)
-          default:
-              throw HttpContext.Error.unexpectedStatus(response.status, response.body)
-      }
+      try requestContext.validate(response)
+      \(successCase.returnExpression)
       """
   }
 }
@@ -193,16 +184,15 @@ private struct EndpointContract {
   let generatesQueryType: Bool
   let headerType: String?
   let headerFields: [HeaderField]
+  let staticHeaders: [StaticHeaderAttribute]
   let generatesHeaderType: Bool
   let resultCases: [EndpointResultCase]
 
   init(_ declaration: some DeclGroupSyntax, context: some MacroExpansionContext) {
     let contentAttribute = declaration.attribute(named: "Content").flatMap(ContentAttribute.init)
-    let fieldFields = EndpointField.all(named: "Field", in: declaration, context: context)
-    let partFields = EndpointField.all(named: "Part", in: declaration, context: context)
-    contentFields = fieldFields + partFields
+    contentFields = []
     let hasContentType = declaration.hasNestedType(named: "Content")
-    let hasSingleValueContent = contentAttribute?.valueType != nil
+    let hasSingleValueContent = contentAttribute != nil
     generatesContentType = contentFields.isEmpty == false && !hasContentType && !hasSingleValueContent
 
     if contentFields.isEmpty == false,
@@ -210,16 +200,16 @@ private struct EndpointContract {
     {
       context.diagnose(
         Diagnostic(
-          node: Syntax(declaration),
-          message: ApiUtilsMacroDiagnostic(
-            "Use either @Field/@Part attributes, a nested Content type, or @Content(.type, Value.self), not more than one.",
+            node: Syntax(declaration),
+            message: ApiUtilsMacroDiagnostic(
+            "Use either a nested Content type, a Content typealias, or @Content(Value.self), not more than one.",
             id: "content-fields-conflict-with-content-type"
           )
         )
       )
     }
 
-    if let type = contentAttribute?.valueType {
+    if let type = contentAttribute?.type {
       contentType = type
       contentParameterName = "content"
     } else if let type = declaration.nestedTypeAlias(named: "Content") {
@@ -238,6 +228,7 @@ private struct EndpointContract {
 
     queryFields = EndpointField.all(named: "Query", in: declaration, context: context)
     headerFields = HeaderField.all(in: declaration, context: context)
+    staticHeaders = StaticHeaderAttribute.all(in: declaration)
     let queryTypes = EndpointContractType.all(markedBy: "Query", in: declaration)
     if queryTypes.count > 1 {
       context.diagnose(
@@ -314,18 +305,7 @@ private struct EndpointContract {
     }
     self.queryKeys = queryKeys
 
-    let responseCases = EndpointResultCase.all(
-      in: declaration,
-      context: context
-    )
-    var resultCases = responseCases
-    if responseCases.isEmpty {
-      resultCases.insert(EndpointResultCase.defaultResponse(in: declaration), at: 0)
-    } else if EndpointResultCase.hasDefaultResponse(in: declaration),
-      !resultCases.contains(where: { $0.caseName == "ok" })
-    {
-      resultCases.insert(EndpointResultCase.defaultResponse(in: declaration), at: 0)
-    }
+    let resultCases = [EndpointResultCase.defaultResponse(in: declaration)]
     EndpointResultCase.diagnoseDuplicates(resultCases, in: declaration, context: context)
     self.resultCases = resultCases
   }
@@ -454,11 +434,19 @@ private struct EndpointContract {
   }
 
   var requestContextSetup: String {
-    guard hasQuery || hasHeaders else {
+    guard hasQuery || hasHeaders || !staticHeaders.isEmpty else {
       return "let requestContext = context"
     }
 
     var lines = ["var requestContext = context"]
+
+    for header in staticHeaders {
+      lines.append(
+        """
+        requestContext = requestContext.adding(header: \(header.header))
+        """
+      )
+    }
 
     if hasQuery {
       let queryExpression = generatesQueryType
@@ -477,13 +465,25 @@ private struct EndpointContract {
       let headersExpression = generatesHeaderType
         ? "Headers(\(headerFields.map(\.initializerArgument).joined(separator: ", ")))"
         : "headers"
-      lines.append(
-        """
-        requestContext = requestContext.adding(
-                headers: HttpHeaderEncoder.encode(\(headersExpression), names: \(headerNamesExpression))
-            )
-        """
-      )
+      if generatesHeaderType {
+        for field in headerFields {
+          lines.append(
+            """
+            requestContext = requestContext.adding(
+                    header: \(field.keyExpression).header(\(headersExpression).\(field.label)).erased
+                )
+            """
+          )
+        }
+      } else {
+        lines.append(
+          """
+          requestContext = requestContext.adding(
+                  headers: HttpHeaderEncoder.encode(\(headersExpression))
+              )
+          """
+        )
+      }
     }
 
     return lines.joined(separator: "\n")
@@ -498,18 +498,6 @@ private struct EndpointContract {
       "\"\(key)\": \"\(queryKeys[key]!)\""
     }
     .joined(separator: ", ")
-    return "[\(entries)]"
-  }
-
-  private var headerNamesExpression: String {
-    guard generatesHeaderType else {
-      return "[:]"
-    }
-
-    let entries = headerFields
-      .sorted { $0.label < $1.label }
-      .map { "\"\($0.label)\": \($0.nameExpression)" }
-      .joined(separator: ", ")
     return "[\(entries)]"
   }
 
@@ -609,7 +597,7 @@ private struct EndpointField {
 /// Field metadata used to generate endpoint header structs from method attributes.
 private struct HeaderField {
   let label: String
-  let nameExpression: String
+  let keyExpression: String
   let type: String
   let defaultValue: String?
 
@@ -672,7 +660,7 @@ private struct HeaderField {
       fields.append(
         HeaderField(
           label: argument.label,
-          nameExpression: argument.nameExpression,
+          keyExpression: argument.keyExpression,
           type: argument.type,
           defaultValue: argument.defaultValue
         )
@@ -821,7 +809,7 @@ private struct EndpointResultCase {
         Diagnostic(
           node: Syntax(declaration),
           message: ApiUtilsMacroDiagnostic(
-            "@Response(\(status.statusExpression)) cannot declare stored properties because the status has no response body.",
+            "@Status(\(status.statusExpression)) cannot declare stored properties because the status has no response body.",
             id: "no-body-response-has-stored-properties"
           )
         )

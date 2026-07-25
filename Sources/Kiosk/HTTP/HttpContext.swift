@@ -9,7 +9,7 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
   /// The url builder we're using under the hood
   public var url: UrlBuilder
   /// The currently active headers
-  public var headers: [HttpHeader]
+  public var headers: [AnyHttpHeader]
   /// Request content type inherited by generated API endpoints.
   public var contentType: HTTPContentType?
   /// Accepted response content type inherited by generated API endpoints.
@@ -26,7 +26,7 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
   public init(
     session: URLSession = .shared,
     url: UrlBuilder = .init(),
-    headers: [HttpHeader] = [],
+    headers: [AnyHttpHeader] = [],
     contentType: HTTPContentType? = nil,
     accept: HTTPContentType? = nil,
     options: HttpOptions = .init(),
@@ -63,14 +63,14 @@ extension HttpContext {
 public struct HttpRequest: Sendable {
   public var method: HTTPMethod
   public var url: UrlBuilder
-  public var headers: [HttpHeader]
+  public var headers: [AnyHttpHeader]
   public var body: Data?
   public var options: HttpOptions
 
   public init(
     method: HTTPMethod,
     url: UrlBuilder,
-    headers: [HttpHeader] = [],
+    headers: [AnyHttpHeader] = [],
     body: Data? = nil,
     options: HttpOptions = .init()
   ) {
@@ -86,7 +86,7 @@ public struct HttpRequest: Sendable {
 public struct HttpResponse<Body> {
   public var body: Body
   public var status: HTTPStatusCode
-  public var headers: [HttpHeader]
+  public var headers: [AnyHttpHeader]
   public var mime: HTTPContentType?
   public var encoding: HTTPTextEncodingName?
   public var url: URL?
@@ -94,7 +94,7 @@ public struct HttpResponse<Body> {
   public init(
     body: Body,
     status: HTTPStatusCode,
-    headers: [HttpHeader] = [],
+    headers: [AnyHttpHeader] = [],
     mime: HTTPContentType? = nil,
     encoding: HTTPTextEncodingName? = nil,
     url: URL? = nil
@@ -111,12 +111,12 @@ public struct HttpResponse<Body> {
 extension HttpResponse: Sendable where Body: Sendable {}
 
 extension HttpResponse {
-  public func header(_ name: HTTPHeaderFieldName) -> String? {
-    headers.last { $0.name == name }?.value
+  public func header(_ name: String) -> String? {
+    headers.last { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
   }
 
-  public func headers(named name: HTTPHeaderFieldName) -> [String] {
-    headers.compactMap { $0.name == name ? $0.value : nil }
+  public func headers(named name: String) -> [String] {
+    headers.compactMap { $0.name.caseInsensitiveCompare(name) == .orderedSame ? $0.value : nil }
   }
 }
 
@@ -593,7 +593,7 @@ extension HttpContext {
     return try await send(
       method: method,
       body: body,
-      headers: [.contentType(.json)],
+      headers: [HttpHeader(.contentType, .json).erased],
       validatesStatus: false
     )
   }
@@ -602,7 +602,7 @@ extension HttpContext {
     for method: HTTPMethod,
     content: Content
   ) async throws -> Response<Data> {
-    let contentType = self.contentType ?? .json
+    let contentType = self.contentType ?? headerContentType ?? .json
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
@@ -611,7 +611,7 @@ extension HttpContext {
     return try await send(
       method: method,
       body: body,
-      headers: [.contentType(contentType)],
+      headers: [HttpHeader(.contentType, contentType).erased],
       validatesStatus: false
     )
   }
@@ -630,7 +630,7 @@ extension HttpContext {
     }
   }
 
-  func data(for method: HTTPMethod) async throws -> Response<Data> {
+  public func data(for method: HTTPMethod) async throws -> Response<Data> {
     try await send(method: method, body: nil)
   }
 
@@ -645,26 +645,31 @@ extension HttpContext {
     let encoder = JSONEncoder()
     encoder.userInfo[.serializationContext] = serialization
     let body = try encoder.encode(requestBody)
-    return try await send(method: method, body: body, headers: [.contentType(.json)])
+    return try await send(method: method, body: body, headers: [HttpHeader(.contentType, .json).erased])
   }
 
-  func data<Content>(
+  public func data<Content>(
     for method: HTTPMethod,
     content: Content
   ) async throws -> Response<Data> {
-    let contentType = self.contentType ?? .json
+    let contentType = self.contentType ?? headerContentType ?? .json
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
       serialization: serialization
     )
-    return try await send(method: method, body: body, headers: [.contentType(contentType)])
+    return try await send(method: method, body: body, headers: [HttpHeader(.contentType, contentType).erased])
+  }
+
+  private var headerContentType: HTTPContentType? {
+    headers.last { $0.name.caseInsensitiveCompare(HttpHeaderKey<HTTPContentType>.contentType.name) == .orderedSame }
+      .flatMap { HTTPContentType(validating: $0.value) }
   }
 
   func send(
     method: HTTPMethod,
     body: Data?,
-    headers additionalHeaders: [HttpHeader] = [],
+    headers additionalHeaders: [AnyHttpHeader] = [],
     options overrideOptions: HttpOptions? = nil,
     validatesStatus: Bool = true
   ) async throws -> Response<Data> {
@@ -695,12 +700,12 @@ extension HttpContext {
     urlRequest.httpBody = request.body
     urlRequest.setValue(
       (accept ?? .json).rawValue,
-      forHTTPHeaderField: HTTPHeaderFieldName.accept.rawValue)
+      forHTTPHeaderField: HttpHeaderKey<HTTPContentType>.accept.name)
 
     request.options.apply(to: &urlRequest)
 
     for header in request.headers {
-      urlRequest.setValue(header.value, forHTTPHeaderField: header.name.rawValue)
+      urlRequest.setValue(header.value, forHTTPHeaderField: header.name)
     }
 
     let (data, response) = try await session.data(for: urlRequest)
@@ -748,6 +753,32 @@ extension HttpContext {
       url: response.url
     )
   }
+
+  public func validate(_ response: Response<Data>) throws {
+    guard response.status.isSuccess == false else {
+      return
+    }
+
+    let url = response.url ?? (try? makeURL()) ?? URL(string: "https://kiosk.local")!
+    let headerFields = Dictionary(uniqueKeysWithValues: response.headers.map { ($0.name, $0.value) })
+    let httpResponse = HTTPURLResponse(
+      url: url,
+      statusCode: response.status.rawValue,
+      httpVersion: nil,
+      headerFields: headerFields
+    )!
+
+    if let error = try errors.decode(
+      statusCode: response.status,
+      data: response.body,
+      response: httpResponse,
+      serialization: serialization
+    ) {
+      throw error
+    }
+
+    throw Error.unexpectedStatus(response.status, response.body)
+  }
 }
 
 extension HttpContext {
@@ -780,13 +811,9 @@ extension HttpOptions {
 }
 
 extension HTTPURLResponse {
-  fileprivate var httpHeaders: [HttpHeader] {
-    allHeaderFields.compactMap { key, value in
-      guard let name = HTTPHeaderFieldName(validating: String(describing: key)) else {
-        return nil
-      }
-
-      return HttpHeader(name: name, value: String(describing: value))
+  fileprivate var httpHeaders: [AnyHttpHeader] {
+    allHeaderFields.map { key, value in
+      AnyHttpHeader(name: String(describing: key), value: String(describing: value))
     }
   }
 }

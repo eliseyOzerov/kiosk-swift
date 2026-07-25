@@ -15,12 +15,6 @@ public macro Api(url: UrlBuilder) =
 public macro Path(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "RouteMacro")
 
-/// Generates path context storage and child path accessors for a route namespace.
-@available(*, deprecated, renamed: "Path")
-@attached(member, names: arbitrary)
-public macro Route(_ path: String? = nil) =
-  #externalMacro(module: "KioskMacros", type: "RouteMacro")
-
 /// Marks a route or endpoint as having a dynamic path parameter.
 @attached(member, names: arbitrary)
 public macro Param(_ label: String, _ type: Any.Type) =
@@ -38,27 +32,46 @@ public macro Query() =
 
 /// Marks an endpoint as having a header parameter.
 @attached(member, names: arbitrary)
+public macro Header<Value: Sendable>(_ key: HttpHeaderKey<Value>) =
+  #externalMacro(module: "KioskMacros", type: "HeaderMacro")
+
+/// Marks an endpoint as having a header parameter.
+@attached(member, names: arbitrary)
+public macro Header<Value: Sendable>(
+  _ key: HttpHeaderKey<Value>,
+  _ type: Value.Type,
+  default defaultValue: Value? = nil
+) =
+  #externalMacro(module: "KioskMacros", type: "HeaderMacro")
+
+/// Marks an endpoint as having a custom header parameter.
+@attached(member, names: arbitrary)
 public macro Header(
-  _ name: HTTPHeaderFieldName,
+  _ name: String,
   _ type: Any.Type,
   default defaultValue: Any? = nil
 ) =
   #externalMacro(module: "KioskMacros", type: "HeaderMacro")
 
-/// Sets the request content type for an API path context or endpoint.
+/// Adds a default header to an API path context or endpoint.
 @attached(member, names: arbitrary)
-public macro Content(_ contentType: HTTPContentType) =
-  #externalMacro(module: "KioskMacros", type: "ContentMacro")
+public macro Header<Value: Sendable>(_ key: HttpHeaderKey<Value>, _ value: Value) =
+  #externalMacro(module: "KioskMacros", type: "HeaderMacro")
 
-/// Sets the request content type and single-value content type for an endpoint.
+/// Adds a default custom header to an API path context or endpoint.
 @attached(member, names: arbitrary)
-public macro Content(_ contentType: HTTPContentType, _ type: Any.Type) =
-  #externalMacro(module: "KioskMacros", type: "ContentMacro")
+public macro Header(_ name: String, _ value: String) =
+  #externalMacro(module: "KioskMacros", type: "HeaderMacro")
 
-/// Sets the accepted response content type for an API path context or endpoint.
+/// Marks an endpoint as having a header parameter with a default value.
 @attached(member, names: arbitrary)
-public macro Accept(_ contentType: HTTPContentType) =
-  #externalMacro(module: "KioskMacros", type: "AcceptMacro")
+public macro Header<Value: Sendable>(_ key: HttpHeaderKey<Value>, default defaultValue: Value) =
+  #externalMacro(module: "KioskMacros", type: "HeaderMacro")
+
+/// Marks an endpoint as having a single request content value.
+@attached(member, names: arbitrary)
+public macro Content(_ type: Any.Type) =
+  #externalMacro(module: "KioskMacros", type: "ContentMacro")
 
 /// Activates a registered request wrapper for an API path context or endpoint.
 @attached(member, names: arbitrary)
@@ -70,21 +83,16 @@ public macro Wrap(_ key: WrapperKey) =
 public macro Unwrap(_ key: WrapperKey) =
   #externalMacro(module: "KioskMacros", type: "UnwrapMacro")
 
-/// Marks an endpoint as having a structured request content field.
-@attached(member, names: arbitrary)
-public macro Field(_ label: String, _ type: Any.Type) =
-  #externalMacro(module: "KioskMacros", type: "APIFieldMacro")
-
-/// Marks an endpoint as having a multipart request content part.
-@attached(member, names: arbitrary)
-public macro Part(_ label: String, _ type: Any.Type) =
+/// Marks a stored content property as a multipart part.
+@attached(peer)
+public macro Part(_ name: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "PartMacro")
 
-/// Marks a nested endpoint contract type as a response for an HTTP status code.
+/// Registers a scoped error body type for an HTTP status code.
 @attached(member, names: arbitrary)
 @attached(extension, conformances: Serializable)
-public macro Response(_ status: HTTPStatusCode) =
-  #externalMacro(module: "KioskMacros", type: "ResponseMacro")
+public macro Status(_ status: HTTPStatusCode) =
+  #externalMacro(module: "KioskMacros", type: "StatusMacro")
 
 // MARK: - HTTP method macros
 
@@ -113,49 +121,11 @@ public macro Patch(_ path: String? = nil) =
 public macro Delete(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "DeleteMacro")
 
-// MARK: - Dictionary and value macros
+// MARK: - Field metadata macros
 
 /// Overrides the dictionary key emitted for a stored property.
 @attached(peer)
 public macro Key(_ name: Any) = #externalMacro(module: "KioskMacros", type: "KeyMacro")
-
-/// Expands a nested dictionary value into the containing dictionary.
-@attached(peer)
-public macro Expand() = #externalMacro(module: "KioskMacros", type: "ExpandMacro")
-
-/// Marks a property as natively encoded by the dictionary macro.
-@attached(peer)
-public macro Native() = #externalMacro(module: "KioskMacros", type: "NativeMacro")
-
-/// Excludes a stored property from dictionary encoding and decoding.
-@attached(peer)
-public macro Ignore() = #externalMacro(module: "KioskMacros", type: "IgnoreMacro")
-
-/// Uses a `Valuable` type's underlying value during dictionary encoding.
-@attached(peer)
-public macro UseValue() = #externalMacro(module: "KioskMacros", type: "UseValueMacro")
-
-/// Generates dictionary encoding and decoding for a model.
-@attached(member, names: named(init), named(toDict))
-@attached(extension, conformances: Dictable)
-public macro Dict() = #externalMacro(module: "KioskMacros", type: "DictMacro")
-
-/// Generates `Valuable` conformance for enum-like value wrappers.
-@attached(member, names: named(value), named(fromValue))
-@attached(extension, conformances: Valuable)
-public macro Valuable(_ valueType: Any.Type = Any.self) =
-  #externalMacro(module: "KioskMacros", type: "ValuableMacro")
-
-/// Assigns the encoded value for a `Valuable` case.
-@attached(peer)
-public macro Value(_ value: Any) = #externalMacro(module: "KioskMacros", type: "ValueMacro")
-
-/// Assigns a matched encoded value for a `Valuable` case.
-@attached(peer)
-public macro MatchedValue<Value>(
-  _ type: Value.Type,
-  _ match: (Value) -> Bool
-) = #externalMacro(module: "KioskMacros", type: "MatchedValueMacro")
 
 // MARK: - Serialization macros
 

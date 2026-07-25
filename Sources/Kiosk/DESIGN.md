@@ -2,12 +2,12 @@
 
 Kiosk's premise is that a REST client should be declared in the same shape as the API it calls. Instead of hiding paths in flat methods or generated artifacts, Kiosk uses nested Swift types to make routes, endpoint contracts, request configuration, and response handling discoverable at the callsite.
 
-The core runtime type is `HttpContext`. It carries the base URL, session, headers, content defaults, accepted response type, serialization settings, error decoding, request options, and wrappers. Route macros copy and refine that context as the call path moves from the root to a specific endpoint.
+The core runtime type is `HttpContext`. It carries the base URL, session, headers, content-type defaults, accepted response type, serialization settings, error decoding, request options, and wrappers. Route macros copy and refine that context as the call path moves from the root to a specific endpoint.
 
 ```swift
 @Api(.host("api.example.com"))
-@Content(.json)
-@Accept(.json)
+@Header(.contentType, .json)
+@Header(.accept, .json)
 struct StoreAPI {
   @Path
   struct Users {
@@ -42,15 +42,15 @@ let response = try await api.users.search(q: "ada")
 ## Runtime Areas
 
 - URL construction: `UrlBuilder`, `UrlScheme`, `UrlPort`, `UrlPathComponent`, `UrlQueryItem`, `UrlQueryValue`.
-- HTTP modeling: `HTTPMethod`, `HTTPHeaderFieldName`, `HttpHeader`, `HTTPContentType`, `HTTPStatusCode`, `HttpRequest`, `HttpResponse`.
+- HTTP modeling: `HTTPMethod`, `HttpHeaderKey`, `HttpHeader`, `AnyHttpHeader`, `HTTPContentType`, `HTTPStatusCode`, `HttpRequest`, `HttpResponse`.
 - Context and wrappers: `HttpContext`, `RequestContext`, `WrapperKey`, `WrapperRegistry`, `HttpWrapper`, `HttpOptions`.
 - Encoding and decoding: `SerializationContext`, `Serializable`, `UrlQueryEncoder`, `HttpHeaderEncoder`, `HTTPContentEncoder`.
-- Local model support: `Dictable`, `Valuable`, `Validatable`, `ValidationContext`.
+- Local model support: `Serializable`, `Validatable`, `SerializationContext`, `ValidationContext`.
 - WebSocket context exists as experimental runtime surface and is not part of the v0.1 README promise.
 
 ## Test Coverage
 
 - URL, header, content type, and status helpers are covered in `KioskTests`.
-- Nested path generation, parameterized routes, method macros, query, headers, request content, response decoding, and declared status results are covered in `KioskTests`.
-- Accept/content inheritance, wrapper scoping, custom method paths, manual headers/content, unexpected status errors, and wrapper ordering are covered in `KioskProofTests`.
-- Single-import dictionary/value, serialization, and validation macro behavior is covered in `KioskLocalModelTests`.
+- Nested path generation, parameterized routes, method macros, query, headers, request content, response decoding, and scoped status errors are covered in `KioskTests`.
+- Accept and content-type header inheritance, wrapper scoping, custom method paths, manual headers/content, unexpected status errors, and wrapper ordering are covered in `KioskProofTests`.
+- Single-import serialization and validation macro behavior is covered in `KioskLocalModelTests`.

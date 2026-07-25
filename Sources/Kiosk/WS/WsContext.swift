@@ -4,13 +4,13 @@ import Foundation
 public struct WsContext: RequestContext {
   public var session: URLSession
   public var url: UrlBuilder
-  public var headers: [HttpHeader]
+  public var headers: [AnyHttpHeader]
   public var options: WsOptions
 
   public init(
     session: URLSession = .shared,
     url: UrlBuilder = .init(scheme: .wss),
-    headers: [HttpHeader] = [],
+    headers: [AnyHttpHeader] = [],
     options: WsOptions = .init()
   ) {
     self.session = session
@@ -37,7 +37,7 @@ extension WsContext {
     options.apply(to: &request)
 
     for header in headers {
-      request.setValue(header.value, forHTTPHeaderField: header.name.rawValue)
+      request.setValue(header.value, forHTTPHeaderField: header.name)
     }
 
     let task = session.webSocketTask(with: request)

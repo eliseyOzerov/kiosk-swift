@@ -59,7 +59,7 @@ private extension StructDeclSyntax {
         return false
       }
 
-      return ["Path", "Route", "Api", "Get", "Post", "Put", "Patch", "Delete"]
+      return ["Path", "Api", "Get", "Post", "Put", "Patch", "Delete"]
         .contains(attribute.attributeName.trimmedDescription)
     }
   }

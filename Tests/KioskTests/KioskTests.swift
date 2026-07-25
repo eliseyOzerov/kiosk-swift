@@ -21,9 +21,9 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(components.queryItems, [URLQueryItem(name: "search", value: "forge kit")])
   }
 
-  func testHTTPHeaderNamesCompareCaseInsensitively() {
-    let contentType = HTTPHeaderFieldName("Content-Type")
-    let lowercase = HTTPHeaderFieldName("content-type")
+  func testAnyHTTPHeadersCompareNamesCaseInsensitively() {
+    let contentType = AnyHttpHeader(name: "Content-Type", value: "application/json")
+    let lowercase = AnyHttpHeader(name: "content-type", value: "application/json")
 
     XCTAssertEqual(contentType, lowercase)
     XCTAssertEqual(Set([contentType, lowercase]).count, 1)
@@ -41,8 +41,8 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(HTTPContentType.text.rawValue, "text/plain")
     XCTAssertEqual(HTTPContentType.utf8.rawValue, "text/plain; charset=utf-8")
     XCTAssertEqual(HTTPContentType.multipart(boundary: "forge").rawValue, "multipart/form-data; boundary=forge")
-    XCTAssertEqual(HttpHeader.contentType(.json), HttpHeader(name: .contentType, value: "application/json"))
-    XCTAssertEqual(HttpHeader.accept(.json), HttpHeader(name: .accept, value: "application/json"))
+    XCTAssertEqual(erased(.contentType, .json), AnyHttpHeader(name: "Content-Type", value: "application/json"))
+    XCTAssertEqual(erased(.accept, .json), AnyHttpHeader(name: "Accept", value: "application/json"))
   }
 
   func testHTTPStatusCodeClassAndReasonPhrase() {
@@ -80,12 +80,16 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(api.context.url.host, "api.example.com")
     XCTAssertEqual(api.context.url.scheme, .http)
     XCTAssertEqual(api.context.url.port, .alternateHTTP)
+    XCTAssertEqual(api.context.headers, [erased(.accept, .json)])
     XCTAssertEqual(api.users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
+    XCTAssertEqual(api.users.context.headers, [erased(.accept, .json), erased(.authorization, "Bearer users")])
 
     let hostOverride = ConfiguredAPI("staging.example.com")
     XCTAssertEqual(hostOverride.context.url.host, "staging.example.com")
     XCTAssertEqual(hostOverride.context.url.scheme, .https)
+    XCTAssertEqual(hostOverride.context.headers, [erased(.accept, .json)])
     XCTAssertEqual(hostOverride.users.context.url.path.map(\.urlPathComponent), ["users"])
+    XCTAssertEqual(hostOverride.users.context.headers, [erased(.accept, .json), erased(.authorization, "Bearer users")])
 
     let urlOverride = ConfiguredAPI(url: .host("local.example.com").adding(path: "preview"))
     XCTAssertEqual(urlOverride.context.url.host, "local.example.com")
@@ -96,7 +100,7 @@ final class KioskTests: XCTestCase {
   }
 
   func testApiProxyMethodsRebuildChildContexts() {
-    let header = HttpHeader(name: "X-Client", value: "kiosk")
+    let header = AnyHttpHeader(name: "X-Client", value: "kiosk")
     let api = StoreAPI("example.com")
       .scheme(.http)
       .adding(path: "v1")
@@ -124,7 +128,7 @@ final class KioskTests: XCTestCase {
     let recorder = RequestRecorder()
     let endpoint = StoreAPI("example.com")
       .users
-      .adding(header: HttpHeader(name: "X-Route", value: "users"))
+      .adding(header: AnyHttpHeader(name: "X-Route", value: "users"))
       .search
       .adding(query: UrlQueryItem(name: "locale", value: "en"))
       .wrap(.capture, RecordingWrapper(recorder: recorder))
@@ -133,7 +137,7 @@ final class KioskTests: XCTestCase {
     let lastRequest = await recorder.last()
     let recordedRequest = try XCTUnwrap(lastRequest)
 
-    XCTAssertEqual(recordedRequest.headers, [HttpHeader(name: "X-Route", value: "users")])
+    XCTAssertEqual(recordedRequest.headers, [AnyHttpHeader(name: "X-Route", value: "users")])
     XCTAssertEqual(recordedRequest.url.query, [
       UrlQueryItem(name: "locale", value: "en"),
       UrlQueryItem(name: "q", value: "kiosk"),
@@ -182,7 +186,7 @@ final class KioskTests: XCTestCase {
         .wrap(.capture, RecordingWrapper(recorder: recorder))
     )
 
-    _ = try await api.users.create(name: "Ada")
+    _ = try await api.users.create(.init(name: "Ada", displayName: nil))
     let recordedRequest = await recorder.last()
     let request = try XCTUnwrap(recordedRequest)
     let body = try XCTUnwrap(request.body)
@@ -190,7 +194,7 @@ final class KioskTests: XCTestCase {
 
     XCTAssertEqual(request.method, .post)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["users", "create"])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.json))
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .json))
     XCTAssertEqual(decoded.name, "Ada")
     XCTAssertNil(decoded.displayName)
   }
@@ -213,7 +217,9 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(request.method, .get)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "1970-01-01T00:00:00Z", "launch"])
     XCTAssertEqual(request.headers, [
-      .init(name: .ifNoneMatch, value: "etag-1"),
+      erased(.contentType, .json),
+      erased(.accept, .json),
+      AnyHttpHeader(name: HttpHeaderKey<String>.ifNoneMatch.name, value: "etag-1"),
     ])
 
     _ = try await api.posts.post(date: date, slug: slug).replace(
@@ -239,7 +245,7 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "1970-01-01T00:00:00Z", "launch"])
 
     _ = try await api.posts.publish(postDate: postDate, slug: slug)(
-      title: "New",
+      .init(title: "New"),
       notify: true
     )
     recordedRequest = await recorder.last()
@@ -249,7 +255,7 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(request.url.query, [
       UrlQueryItem(name: "notify", value: "true"),
     ])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.json))
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .json))
 
     let searchBody = try JSONEncoder().encode(ComprehensiveAPI.Posts.Search.Response(items: ["a"]))
     let searchAPI = ComprehensiveAPI(
@@ -269,6 +275,8 @@ final class KioskTests: XCTestCase {
       UrlQueryItem(name: "term", value: "forge"),
     ]))
     XCTAssertEqual(request.headers, [
+      erased(.contentType, .json),
+      erased(.accept, .json),
       .init(name: "X-Trace-ID", value: "trace"),
     ])
 
@@ -301,13 +309,13 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "review"])
     XCTAssertEqual(decoded.title, "Alias")
 
-    _ = try await api.posts.login(emailAddress: "a@b.com", password: "secret")
+    _ = try await api.posts.login(.init(emailAddress: "a@b.com", password: "secret"))
     recordedRequest = await recorder.last()
     request = try XCTUnwrap(recordedRequest)
     let formBody = try XCTUnwrap(request.body)
     XCTAssertEqual(request.method, .post)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "login"])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.form))
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .form))
     XCTAssertEqual(String(data: formBody, encoding: .utf8), "email-address=a%40b.com&password=secret")
 
     let data = Data([0, 1, 2])
@@ -316,17 +324,20 @@ final class KioskTests: XCTestCase {
     request = try XCTUnwrap(recordedRequest)
     XCTAssertEqual(request.method, .post)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "upload"])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.binary))
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .binary))
     XCTAssertEqual(request.body, data)
 
-    _ = try await api.posts.attach(title: "Attachment", file: Data("bytes".utf8))
+    _ = try await api.posts.attach(.init(title: "Attachment", file: Data("bytes".utf8)))
     recordedRequest = await recorder.last()
     request = try XCTUnwrap(recordedRequest)
     let multipartBody = try XCTUnwrap(request.body)
     let multipart = try XCTUnwrap(String(data: multipartBody, encoding: .utf8))
     XCTAssertEqual(request.method, .post)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "attach"])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.multipart(boundary: "fixture")))
+    XCTAssertEqual(
+      request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name },
+      erased(.contentType, .multipart(boundary: "fixture"))
+    )
     XCTAssertTrue(multipart.contains("--fixture\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\nAttachment\r\n"))
     XCTAssertTrue(multipart.contains("--fixture\r\nContent-Disposition: form-data; name=\"file\"\r\nContent-Type: application/octet-stream\r\n\r\nbytes\r\n"))
     XCTAssertTrue(multipart.hasSuffix("--fixture--\r\n"))
@@ -336,7 +347,7 @@ final class KioskTests: XCTestCase {
     request = try XCTUnwrap(recordedRequest)
     XCTAssertEqual(request.method, .post)
     XCTAssertEqual(request.url.path.map { $0.urlPathComponent }, ["posts", "comment"])
-    XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.text))
+    XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .text))
     XCTAssertEqual(request.body, Data("hello".utf8))
   }
 
@@ -348,28 +359,27 @@ final class KioskTests: XCTestCase {
         .wrap(.capture, RecordingWrapper(recorder: RequestRecorder(), body: createdBody, status: .created))
     )
 
-    let created = try await createdAPI.users.create(name: "Ada")
+    let created = try await createdAPI.users.create(.init(name: "Ada"))
     switch created {
-    case .created(let response):
+    case .ok(let response):
       XCTAssertEqual(response.id, id)
-    case .badRequest:
-      XCTFail("Expected created response")
     }
 
     let errorBody = try JSONEncoder().encode(
-      ContractAPI.Users.Create.ValidationError(message: "Name is required")
+      ContractAPI.ValidationError(message: "Name is required")
     )
     let failedAPI = ContractAPI(
       context: HttpContext(url: .host("example.com"))
         .wrap(.capture, RecordingWrapper(recorder: RequestRecorder(), body: errorBody, status: .badRequest))
     )
 
-    let failed = try await failedAPI.users.create(name: "")
-    switch failed {
-    case .created:
-      XCTFail("Expected validation error response")
-    case .badRequest(let error):
+    do {
+      _ = try await failedAPI.users.create(.init(name: ""))
+      XCTFail("Expected validation error")
+    } catch let error as ContractAPI.ValidationError {
       XCTAssertEqual(error.message, "Name is required")
+    } catch {
+      XCTFail("Expected validation error, got \(error)")
     }
 
     let profileBody = try JSONEncoder().encode(ContractAPI.Users.Profile.Response(name: "Ada"))
@@ -382,8 +392,6 @@ final class KioskTests: XCTestCase {
     switch profile {
     case .ok(let response):
       XCTAssertEqual(response.name, "Ada")
-    case .notFound:
-      XCTFail("Expected profile response")
     }
 
     let deletedAPI = ContractAPI(
@@ -393,7 +401,7 @@ final class KioskTests: XCTestCase {
 
     let deleted = try await deletedAPI.users.delete()
     switch deleted {
-    case .noContent:
+    case .ok:
       break
     }
   }
@@ -425,16 +433,24 @@ private struct StoreAPI {
     }
 
     @Post
-    @Field("name", String.self)
-    @Field("display-name", Optional<String>.self)
     struct Create {
+      @Serializable
+      struct Content: Equatable {
+        let name: String
+
+        @Key("display-name")
+        let displayName: String?
+      }
+
       typealias Response = Data
     }
   }
 }
 
+@Header(.accept, .json)
 @Api(.host("api.example.com").scheme(.http).port(.alternateHTTP).adding(path: "v1"))
 private struct ConfiguredAPI {
+  @Header(.authorization, "Bearer users")
   @Path
   struct Users {}
 }
@@ -442,8 +458,8 @@ private struct ConfiguredAPI {
 @Api(url: .host("labeled.example.com"))
 private struct LabeledConfiguredAPI {}
 
-@Content(.json)
-@Accept(.json)
+@Header(.contentType, .json)
+@Header(.accept, .json)
 @Path
 private struct ComprehensiveAPI {
   @Path
@@ -460,7 +476,7 @@ private struct ComprehensiveAPI {
       typealias Response = Posts.MutationResponse
 
       @Get
-      @Header(.ifNoneMatch, String.self)
+      @Header(.ifNoneMatch)
       struct Get {}
 
       @Put
@@ -489,8 +505,11 @@ private struct ComprehensiveAPI {
     @Param("post-date", Date.self)
     @Param("slug", String.self)
     @Query("notify", Bool.self)
-    @Field("title", String.self)
     struct Publish {
+      struct Content: Codable, Equatable {
+        let title: String
+      }
+
       typealias Response = MutationResponse
     }
 
@@ -540,29 +559,41 @@ private struct ComprehensiveAPI {
     }
 
     @Post
-    @Content(.form)
-    @Field("email-address", String.self)
-    @Field("password", String.self)
+    @Header(.contentType, .form)
     struct Login {
+      struct Content: HTTPContentKeyProviding {
+        let emailAddress: String
+        let password: String
+
+        static let contentKeys = ["emailAddress": "email-address"]
+      }
+
       typealias Response = MutationResponse
     }
 
     @Post
-    @Content(.binary, Data.self)
+    @Header(.contentType, .binary)
+    @Content(Data.self)
     struct Upload {
       typealias Response = MutationResponse
     }
 
     @Post
-    @Content(.multipart(boundary: "fixture"))
-    @Field("title", String.self)
-    @Part("file", Data.self)
+    @Header(.contentType, .multipart(boundary: "fixture"))
     struct Attach {
+      struct Content {
+        let title: String
+
+        @Part
+        let file: Data
+      }
+
       typealias Response = MutationResponse
     }
 
     @Post
-    @Content(.text, String.self)
+    @Header(.contentType, .text)
+    @Content(String.self)
     struct Comment {
       typealias Response = MutationResponse
     }
@@ -571,19 +602,21 @@ private struct ComprehensiveAPI {
 
 @Path
 private struct ContractAPI {
+  @Status(.badRequest)
+  struct ValidationError: Error, Equatable, Codable {
+    let message: String
+  }
+
   @Path
   struct Users {
     @Post
-    @Field("name", String.self)
     struct Create {
-      @Response(.created)
-      struct Response: Equatable {
-        let id: UUID
+      struct Content: Codable, Equatable {
+        let name: String
       }
 
-      @Response(.badRequest)
-      struct ValidationError: Equatable {
-        let message: String
+      struct Response: Equatable, Codable {
+        let id: UUID
       }
     }
 
@@ -593,18 +626,10 @@ private struct ContractAPI {
       struct Response: Equatable {
         let name: String
       }
-
-      @Response(.notFound)
-      struct NotFound: Equatable {
-        let message: String
-      }
     }
 
     @Delete
-    struct Delete {
-      @Response(.noContent)
-      struct NoContent {}
-    }
+    struct Delete {}
   }
 }
 
@@ -650,6 +675,10 @@ private struct PassthroughWrapper: HttpWrapper {
   ) async throws -> HttpResponse<Data> {
     try await next(request)
   }
+}
+
+private func erased<Value: Sendable>(_ key: HttpHeaderKey<Value>, _ value: Value) -> AnyHttpHeader {
+  HttpHeader(key, value).erased
 }
 
 private extension WrapperKey {

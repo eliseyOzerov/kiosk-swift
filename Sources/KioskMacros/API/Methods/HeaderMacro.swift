@@ -2,7 +2,7 @@ import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-/// Validates endpoint `@Header(name, Type.self)` marker attributes.
+/// Validates parameter `@Header(name, Type.self)` and default `@Header(name, value)` attributes.
 public struct HeaderMacro: MemberMacro {
   public static func expansion(
     of node: AttributeSyntax,
@@ -15,7 +15,7 @@ public struct HeaderMacro: MemberMacro {
         Diagnostic(
           node: Syntax(node),
           message: ApiUtilsMacroDiagnostic(
-            "@Header can only be attached to endpoint structs.",
+            "@Header can only be attached to API, path, or endpoint structs.",
             id: "header-macro-requires-struct"
           )
         )
@@ -23,30 +23,45 @@ public struct HeaderMacro: MemberMacro {
       return []
     }
 
-    guard declaration.hasMethodAttribute else {
+    guard declaration.hasRouteOrMethodAttribute else {
       context.diagnose(
         Diagnostic(
           node: Syntax(node),
           message: ApiUtilsMacroDiagnostic(
-            "@Header can only be used with @Get, @Post, @Put, @Patch, or @Delete.",
-            id: "header-macro-requires-method"
+            "@Header can only be used with @Api, @Path, @Get, @Post, @Put, @Patch, or @Delete.",
+            id: "header-macro-requires-route-or-method"
           )
         )
       )
       return []
     }
 
-    guard HeaderAttribute(node) != nil else {
-      context.diagnose(
-        Diagnostic(
-          node: Syntax(node),
-          message: ApiUtilsMacroDiagnostic(
-            "Expected @Header(.name, Type.self) or @Header(\"Name\", Type.self).",
-            id: "invalid-header-attribute"
+    if declaration.hasMethodAttribute {
+      guard HeaderAttribute(node) != nil || StaticHeaderAttribute(node) != nil else {
+        context.diagnose(
+          Diagnostic(
+            node: Syntax(node),
+            message: ApiUtilsMacroDiagnostic(
+              "Expected @Header(.name, Type.self), @Header(\"Name\", Type.self), @Header(.name, value), or @Header(\"Name\", value).",
+              id: "invalid-header-attribute"
+            )
           )
         )
-      )
-      return []
+        return []
+      }
+    } else {
+      guard StaticHeaderAttribute(node) != nil else {
+        context.diagnose(
+          Diagnostic(
+            node: Syntax(node),
+            message: ApiUtilsMacroDiagnostic(
+              "Expected @Header(.name, value) or @Header(\"Name\", value) when applying @Header to @Api or @Path.",
+              id: "invalid-scoped-header-attribute"
+            )
+          )
+        )
+        return []
+      }
     }
 
     return []
@@ -54,6 +69,17 @@ public struct HeaderMacro: MemberMacro {
 }
 
 private extension StructDeclSyntax {
+  var hasRouteOrMethodAttribute: Bool {
+    attributes.contains { element in
+      guard let attribute = element.as(AttributeSyntax.self) else {
+        return false
+      }
+
+      return ["Api", "Path", "Get", "Post", "Put", "Patch", "Delete"]
+        .contains(attribute.attributeName.trimmedDescription)
+    }
+  }
+
   var hasMethodAttribute: Bool {
     attributes.contains { element in
       guard let attribute = element.as(AttributeSyntax.self) else {

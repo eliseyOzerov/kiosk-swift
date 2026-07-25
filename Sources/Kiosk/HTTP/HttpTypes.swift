@@ -106,122 +106,107 @@ public enum HTTPVersion: Hashable, Sendable {
   }
 }
 
-/// Case-insensitive validated HTTP header field name.
-public struct HTTPHeaderFieldName: Hashable, ExpressibleByStringLiteral, Sendable {
-  public let rawValue: String
+/// Typed HTTP header descriptor that knows how to render a value for one header name.
+public struct HttpHeaderKey<Value: Sendable>: Sendable {
+  public let name: String
+  fileprivate let encode: @Sendable (Value) -> String
 
-  public init(_ rawValue: String) {
-    precondition(Self.isValidToken(rawValue), "HTTP field names must be non-empty RFC tokens.")
-    self.rawValue = rawValue
+  public init(
+    _ name: String,
+    encode: @escaping @Sendable (Value) -> String = { String(describing: $0) }
+  ) {
+    self.name = name
+    self.encode = encode
   }
 
-  public init?(validating rawValue: String) {
-    guard Self.isValidToken(rawValue) else {
-      return nil
-    }
-    self.rawValue = rawValue
+  public func header(_ value: Value) -> HttpHeader<Value> {
+    HttpHeader(self, value)
   }
 
-  public init(stringLiteral value: String) {
-    self.init(value)
-  }
-
-  public static func == (lhs: HTTPHeaderFieldName, rhs: HTTPHeaderFieldName) -> Bool {
-    lhs.rawValue.lowercased() == rhs.rawValue.lowercased()
-  }
-
-  public func hash(into hasher: inout Hasher) {
-    hasher.combine(rawValue.lowercased())
+  public static func custom(_ name: String, as type: Value.Type = Value.self) -> Self {
+    Self(name)
   }
 }
 
-extension HTTPHeaderFieldName {
-  public static let accept = HTTPHeaderFieldName("Accept")
-  public static let acceptEncoding = HTTPHeaderFieldName("Accept-Encoding")
-  public static let acceptLanguage = HTTPHeaderFieldName("Accept-Language")
-  public static let allow = HTTPHeaderFieldName("Allow")
-  public static let authorization = HTTPHeaderFieldName("Authorization")
-  public static let cacheControl = HTTPHeaderFieldName("Cache-Control")
-  public static let connection = HTTPHeaderFieldName("Connection")
-  public static let contentEncoding = HTTPHeaderFieldName("Content-Encoding")
-  public static let contentLanguage = HTTPHeaderFieldName("Content-Language")
-  public static let contentLength = HTTPHeaderFieldName("Content-Length")
-  public static let contentLocation = HTTPHeaderFieldName("Content-Location")
-  public static let contentRange = HTTPHeaderFieldName("Content-Range")
-  public static let contentType = HTTPHeaderFieldName("Content-Type")
-  public static let cookie = HTTPHeaderFieldName("Cookie")
-  public static let date = HTTPHeaderFieldName("Date")
-  public static let etag = HTTPHeaderFieldName("ETag")
-  public static let expect = HTTPHeaderFieldName("Expect")
-  public static let host = HTTPHeaderFieldName("Host")
-  public static let ifMatch = HTTPHeaderFieldName("If-Match")
-  public static let ifModifiedSince = HTTPHeaderFieldName("If-Modified-Since")
-  public static let ifNoneMatch = HTTPHeaderFieldName("If-None-Match")
-  public static let ifRange = HTTPHeaderFieldName("If-Range")
-  public static let ifUnmodifiedSince = HTTPHeaderFieldName("If-Unmodified-Since")
-  public static let lastModified = HTTPHeaderFieldName("Last-Modified")
-  public static let link = HTTPHeaderFieldName("Link")
-  public static let location = HTTPHeaderFieldName("Location")
-  public static let origin = HTTPHeaderFieldName("Origin")
-  public static let proxyAuthenticate = HTTPHeaderFieldName("Proxy-Authenticate")
-  public static let proxyAuthorization = HTTPHeaderFieldName("Proxy-Authorization")
-  public static let range = HTTPHeaderFieldName("Range")
-  public static let referer = HTTPHeaderFieldName("Referer")
-  public static let retryAfter = HTTPHeaderFieldName("Retry-After")
-  public static let server = HTTPHeaderFieldName("Server")
-  public static let setCookie = HTTPHeaderFieldName("Set-Cookie")
-  public static let trailer = HTTPHeaderFieldName("Trailer")
-  public static let transferEncoding = HTTPHeaderFieldName("Transfer-Encoding")
-  public static let upgrade = HTTPHeaderFieldName("Upgrade")
-  public static let userAgent = HTTPHeaderFieldName("User-Agent")
-  public static let vary = HTTPHeaderFieldName("Vary")
-  public static let via = HTTPHeaderFieldName("Via")
-  public static let wwwAuthenticate = HTTPHeaderFieldName("WWW-Authenticate")
+extension HttpHeaderKey where Value == HTTPContentType {
+  public static let accept = Self("Accept") { $0.rawValue }
+  public static let contentType = Self("Content-Type") { $0.rawValue }
 }
 
-extension HTTPHeaderFieldName {
-  fileprivate static func isValidToken(_ token: String) -> Bool {
-    !token.isEmpty && token.utf8.allSatisfy(isTokenByte)
+extension HttpHeaderKey where Value == Int {
+  public static let contentLength = Self("Content-Length") { "\($0)" }
+}
+
+extension HttpHeaderKey where Value == String {
+  public static let acceptEncoding = Self("Accept-Encoding")
+  public static let acceptLanguage = Self("Accept-Language")
+  public static let authorization = Self("Authorization")
+  public static let cacheControl = Self("Cache-Control")
+  public static let connection = Self("Connection")
+  public static let contentEncoding = Self("Content-Encoding")
+  public static let contentLanguage = Self("Content-Language")
+  public static let cookie = Self("Cookie")
+  public static let date = Self("Date")
+  public static let etag = Self("ETag")
+  public static let expect = Self("Expect")
+  public static let host = Self("Host")
+  public static let ifMatch = Self("If-Match")
+  public static let ifModifiedSince = Self("If-Modified-Since")
+  public static let ifNoneMatch = Self("If-None-Match")
+  public static let ifRange = Self("If-Range")
+  public static let ifUnmodifiedSince = Self("If-Unmodified-Since")
+  public static let lastModified = Self("Last-Modified")
+  public static let link = Self("Link")
+  public static let location = Self("Location")
+  public static let origin = Self("Origin")
+  public static let proxyAuthenticate = Self("Proxy-Authenticate")
+  public static let proxyAuthorization = Self("Proxy-Authorization")
+  public static let range = Self("Range")
+  public static let referer = Self("Referer")
+  public static let retryAfter = Self("Retry-After")
+  public static let server = Self("Server")
+  public static let setCookie = Self("Set-Cookie")
+  public static let trailer = Self("Trailer")
+  public static let transferEncoding = Self("Transfer-Encoding")
+  public static let upgrade = Self("Upgrade")
+  public static let userAgent = Self("User-Agent")
+  public static let vary = Self("Vary")
+  public static let via = Self("Via")
+  public static let wwwAuthenticate = Self("WWW-Authenticate")
+}
+
+/// Typed HTTP header pair before it is rendered for transport.
+public struct HttpHeader<Value: Sendable>: Sendable {
+  public let key: HttpHeaderKey<Value>
+  public let value: Value
+
+  public init(_ key: HttpHeaderKey<Value>, _ value: Value) {
+    self.key = key
+    self.value = value
   }
 
-  fileprivate static func isTokenByte(_ byte: UInt8) -> Bool {
-    switch byte {
-    case 48...57, 65...90, 97...122:
-      return true
-    case 33, 35, 36, 37, 38, 39, 42, 43, 45, 46, 94, 95, 96, 124, 126:
-      return true
-    default:
-      return false
-    }
+  public var erased: AnyHttpHeader {
+    AnyHttpHeader(name: key.name, value: key.encode(value))
   }
 }
 
-/// Name/value HTTP header pair.
-public struct HttpHeader: Hashable, Sendable {
-  public let name: HTTPHeaderFieldName
+/// Erased name/value HTTP header pair ready to store on a request or response.
+public struct AnyHttpHeader: Hashable, Sendable {
+  public let name: String
   public let value: String
 
-  public init(name: HTTPHeaderFieldName, value: String) {
+  public init(name: String, value: String) {
     self.name = name
     self.value = value
   }
-}
 
-extension HttpHeader {
-  public static func accept(_ contentType: HTTPContentType) -> HttpHeader {
-    HttpHeader(name: .accept, value: contentType.rawValue)
+  public static func == (lhs: AnyHttpHeader, rhs: AnyHttpHeader) -> Bool {
+    lhs.name.lowercased() == rhs.name.lowercased() && lhs.value == rhs.value
   }
 
-  public static func authorization(_ value: String) -> HttpHeader {
-    HttpHeader(name: .authorization, value: value)
-  }
-
-  public static func contentLength(_ value: Int) -> HttpHeader {
-    HttpHeader(name: .contentLength, value: "\(value)")
-  }
-
-  public static func contentType(_ contentType: HTTPContentType) -> HttpHeader {
-    HttpHeader(name: .contentType, value: contentType.rawValue)
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(name.lowercased())
+    hasher.combine(value)
   }
 }
 

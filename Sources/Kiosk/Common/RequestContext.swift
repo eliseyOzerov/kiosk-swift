@@ -3,7 +3,7 @@ public protocol RequestContext {
   associatedtype Options
 
   var url: UrlBuilder { get set }
-  var headers: [HttpHeader] { get set }
+  var headers: [AnyHttpHeader] { get set }
   var options: Options { get set }
 }
 
@@ -44,7 +44,7 @@ extension RequestContext {
     return context
   }
 
-  public func headers(_ headers: [HttpHeader]) -> Self {
+  public func headers(_ headers: [AnyHttpHeader]) -> Self {
     var context = self
     context.headers = headers
     return context
@@ -76,13 +76,17 @@ extension RequestContext {
     return context
   }
 
-  public func adding(header: HttpHeader) -> Self {
+  public func adding(header: AnyHttpHeader) -> Self {
     var context = self
     context.headers.append(header)
     return context
   }
 
-  public func adding(headers: [HttpHeader]) -> Self {
+  public func adding<Value: Sendable>(header: HttpHeader<Value>) -> Self {
+    adding(header: header.erased)
+  }
+
+  public func adding(headers: [AnyHttpHeader]) -> Self {
     var context = self
     context.headers.append(contentsOf: headers)
     return context

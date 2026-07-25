@@ -42,18 +42,18 @@ final class KioskProofTests: XCTestCase {
 				.wrap(.proofCapture, ProofRecordingWrapper(recorder: recorder))
 		)
 
-		_ = try await api.rootDefault(name: "Ada")
+		_ = try await api.rootDefault(.init(name: "Ada"))
 		var request = try await recorder.last()
-		XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.json))
+		XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .json))
 
-		_ = try await api.forms.login(email: "a@b.com")
+		_ = try await api.forms.login(.init(email: "a@b.com"))
 		request = try await recorder.last()
-		XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.form))
+		XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .form))
 		XCTAssertEqual(String(data: try XCTUnwrap(request.body), encoding: .utf8), "email=a%40b.com")
 
 		_ = try await api.forms.override(Data([1, 2, 3]))
 		request = try await recorder.last()
-		XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.binary))
+		XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .binary))
 		XCTAssertEqual(request.body, Data([1, 2, 3]))
 	}
 
@@ -143,7 +143,7 @@ final class KioskProofTests: XCTestCase {
 
 		_ = try await api.users.manualForm(.init(emailAddress: "a@b.com"))
 		let request = try await recorder.last()
-		XCTAssertEqual(request.headers.last { $0.name == .contentType }, .contentType(.form))
+		XCTAssertEqual(request.headers.last { $0.name == HttpHeaderKey<HTTPContentType>.contentType.name }, erased(.contentType, .form))
 		XCTAssertEqual(String(data: try XCTUnwrap(request.body), encoding: .utf8), "email-address=a%40b.com")
 	}
 
@@ -222,7 +222,7 @@ final class KioskProofTests: XCTestCase {
 }
 
 @Wrap(.auth)
-@Content(.json)
+@Header(.contentType, .json)
 @Path
 private struct AuthPolicyProofAPI {
 	@Unwrap(.auth)
@@ -248,7 +248,7 @@ private struct AuthPolicyProofAPI {
 	}
 }
 
-@Accept(.text)
+@Header(.accept, .text)
 @Path
 private struct TransportProofAPI {
 	@Get
@@ -257,26 +257,33 @@ private struct TransportProofAPI {
 	}
 }
 
-@Content(.json)
+@Header(.contentType, .json)
 @Path
 private struct ContentProofAPI {
 	@Post
-	@Field("name", String.self)
 	struct RootDefault {
+		struct Content: Codable {
+			let name: String
+		}
+
 		typealias Response = Data
 	}
 
-	@Content(.form)
+	@Header(.contentType, .form)
 	@Path
 	struct Forms {
 		@Post
-		@Field("email", String.self)
 		struct Login {
+			struct Content {
+				let email: String
+			}
+
 			typealias Response = Data
 		}
 
 		@Post
-		@Content(.binary, Data.self)
+		@Header(.contentType, .binary)
+		@Content(Data.self)
 		struct Override {
 			typealias Response = Data
 		}
@@ -303,7 +310,7 @@ private struct RuntimeProofAPI {
 		}
 
 		@Post
-		@Content(.form)
+		@Header(.contentType, .form)
 		struct ManualForm {
 			struct Content: HTTPContentKeyProviding {
 				let emailAddress: String
@@ -455,7 +462,7 @@ private struct MutatingHeaderWrapper: HttpWrapper {
 	) async throws -> HttpResponse<Data> {
 		await events.append("enter mutate")
 		var request = request
-		request.headers.append(HttpHeader(name: "X-Mutated", value: "true"))
+		request.headers.append(AnyHttpHeader(name: "X-Mutated", value: "true"))
 		let response = try await next(request)
 		await events.append("exit mutate")
 		return response
@@ -471,9 +478,13 @@ private struct AuthorizationWrapper: HttpWrapper {
 	) async throws -> HttpResponse<Data> {
 		await events.append("auth")
 		var request = request
-		request.headers.append(HttpHeader(name: .authorization, value: "Bearer proof"))
+		request.headers.append(AnyHttpHeader(name: HttpHeaderKey<String>.authorization.name, value: "Bearer proof"))
 		return try await next(request)
 	}
+}
+
+private func erased<Value: Sendable>(_ key: HttpHeaderKey<Value>, _ value: Value) -> AnyHttpHeader {
+	HttpHeader(key, value).erased
 }
 
 private extension WrapperKey {

@@ -2,8 +2,8 @@ import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-/// Validates nested endpoint `@Response(status)` contract marker attributes.
-public struct ResponseMacro: MemberMacro, ExtensionMacro {
+/// Validates scoped `@Status(status)` error body marker attributes.
+public struct StatusMacro: MemberMacro, ExtensionMacro {
   public static func expansion(
     of node: AttributeSyntax,
     providingMembersOf declaration: some DeclGroupSyntax,
@@ -15,8 +15,8 @@ public struct ResponseMacro: MemberMacro, ExtensionMacro {
         Diagnostic(
           node: Syntax(node),
           message: ApiUtilsMacroDiagnostic(
-            "@Response can only be attached to response body structs.",
-            id: "response-macro-requires-struct"
+            "@Status can only be attached to status error body structs.",
+            id: "status-macro-requires-struct"
           )
         )
       )
@@ -28,8 +28,8 @@ public struct ResponseMacro: MemberMacro, ExtensionMacro {
         Diagnostic(
           node: Syntax(node),
           message: ApiUtilsMacroDiagnostic(
-            "Expected @Response(.status).",
-            id: "invalid-response-attribute"
+            "Expected @Status(.status).",
+            id: "invalid-status-attribute"
           )
         )
       )
