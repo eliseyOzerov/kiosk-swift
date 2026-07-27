@@ -35,8 +35,9 @@ Kiosk is a lean Swift package for declaring discoverable REST clients as nested 
 - [x] Run `swift test`.
 - [x] Check package builds from a clean copy without local path dependencies.
 - [x] Remove dictionary/value helper macros from the v0.1 public surface, keeping `@Key` temporarily for field naming.
-- [ ] Create GitHub repo `ozerov-studio/kiosk-swift`.
+- [x] Add `AGENTS.md` as a compact implementation guide for coding agents.
+- [x] Add a `Kiosk.docc` catalog and `.spi.yml` documentation target for Swift Package Index hosted docs.
 - [ ] Push the package source.
-- [ ] Tag `0.1.0`.
-- [ ] Submit `https://github.com/ozerov-studio/kiosk-swift` to Swift Package Index.
+- [ ] Tag the next release.
+- [ ] Submit `https://github.com/eliseyOzerov/kiosk-swift` to Swift Package Index.
 - [ ] After SPI indexes the package, review build matrix and documentation rendering.

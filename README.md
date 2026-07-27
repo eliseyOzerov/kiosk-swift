@@ -4,6 +4,11 @@ Kiosk is a Swift-first way to declare discoverable REST clients with scoped requ
 
 Your client should look like the API it talks to: a route tree you can navigate in Swift, with endpoint-local request and response models, and inherited configuration for headers, content types, wire policy, and middleware.
 
+## Documentation
+
+- Full package documentation lives in `Sources/Kiosk/Kiosk.docc` and is configured for Swift Package Index hosting through `.spi.yml`.
+- Agent-facing implementation guidance lives in `AGENTS.md`.
+
 ## Building Requests
 
 Every HTTP request starts with four pieces: a method, a URL, headers, and optional content.

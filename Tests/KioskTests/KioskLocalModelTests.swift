@@ -26,7 +26,12 @@ final class KioskLocalModelTests: XCTestCase {
       fields: .snakeCase,
       values: .jsonDefault
         .date(.secondsSince1970)
-        .bool(.string)
+        .bool(.string),
+      defaults: WireDefaults()
+        .setting(Bool.self, false)
+        .setting(Array.self, [])
+        .setting(Dictionary.self, [:])
+        .setting(Set<Int>.self, [])
     )
     let data = #"{"display_name":"Kiosk","created_at":1000,"enabled":"yes"}"#
       .data(using: .utf8)!
@@ -38,7 +43,10 @@ final class KioskLocalModelTests: XCTestCase {
     XCTAssertEqual(decoded.displayName, "Kiosk")
     XCTAssertEqual(decoded.createdAt, Date(timeIntervalSince1970: 1000))
     XCTAssertTrue(decoded.enabled)
+    XCTAssertFalse(decoded.notifications)
     XCTAssertEqual(decoded.tags, [])
+    XCTAssertEqual(decoded.scores, [])
+    XCTAssertEqual(decoded.labels, [:])
 
     let encoder = JSONEncoder()
     encoder.userInfo[.wireSpec] = spec
@@ -51,7 +59,10 @@ final class KioskLocalModelTests: XCTestCase {
     XCTAssertEqual(object["display_name"] as? String, "Kiosk")
     XCTAssertEqual((object["created_at"] as? NSNumber)?.doubleValue, 1000)
     XCTAssertEqual(object["enabled"] as? String, "true")
+    XCTAssertEqual(object["notifications"] as? String, "false")
     XCTAssertEqual(object["tags"] as? [String], [])
+    XCTAssertEqual(object["scores"] as? [Int], [])
+    XCTAssertEqual(object["labels"] as? [String: String], [:])
   }
 }
 
@@ -67,5 +78,8 @@ struct ContextualRecord: Equatable {
   var displayName: String
   var createdAt: Date
   var enabled: Bool
+  var notifications: Bool
   var tags: [String]
+  var scores: Set<Int>
+  var labels: [String: String]
 }

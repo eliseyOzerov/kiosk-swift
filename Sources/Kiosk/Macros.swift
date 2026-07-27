@@ -1,17 +1,18 @@
 // MARK: - Routing macros
 
-/// Generates path context storage and child path accessors for an API namespace.
+/// Generates root API context storage.
 @attached(member, names: arbitrary)
 public macro Api(_ url: UrlBuilder = .init()) =
   #externalMacro(module: "KioskMacros", type: "RouteMacro")
 
-/// Generates path context storage and child path accessors for an API namespace.
+/// Generates root API context storage.
 @attached(member, names: arbitrary)
 public macro Api(url: UrlBuilder) =
   #externalMacro(module: "KioskMacros", type: "RouteMacro")
 
-/// Generates path context storage and child path accessors for a URL namespace.
+/// Generates path context storage and a peer accessor when nested in a route namespace.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Path(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "RouteMacro")
 
@@ -98,26 +99,31 @@ public macro Status(_ status: HTTPStatusCode) =
 
 /// Generates a GET endpoint from an API endpoint struct.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Get(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "GetMacro")
 
 /// Generates a POST endpoint from an API endpoint struct.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Post(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "PostMacro")
 
 /// Generates a PUT endpoint from an API endpoint struct.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Put(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "PutMacro")
 
 /// Generates a PATCH endpoint from an API endpoint struct.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Patch(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "PatchMacro")
 
 /// Generates a DELETE endpoint from an API endpoint struct.
 @attached(member, names: arbitrary)
+@attached(peer, names: arbitrary)
 public macro Delete(_ path: String? = nil) =
   #externalMacro(module: "KioskMacros", type: "DeleteMacro")
 

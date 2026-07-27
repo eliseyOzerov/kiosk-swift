@@ -81,8 +81,10 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(api.context.url.scheme, .http)
     XCTAssertEqual(api.context.url.port, .alternateHTTP)
     XCTAssertEqual(api.context.headers, [erased(.accept, .json)])
+    XCTAssertEqual(api.context.wire.defaults[Bool.self], false)
     XCTAssertEqual(api.users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
     XCTAssertEqual(api.users.context.headers, [erased(.accept, .json), erased(.authorization, "Bearer users")])
+    XCTAssertEqual(api.users.context.wire.defaults[Bool.self], false)
 
     let hostOverride = ConfiguredAPI("staging.example.com")
     XCTAssertEqual(hostOverride.context.url.host, "staging.example.com")
@@ -154,6 +156,15 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(projects.context.url.path.map { $0.urlPathComponent }, ["tenants", "7", "projects"])
   }
 
+  func testPathAndMethodMacrosBuildAccessorsFromExtensions() {
+    let apple = ExtensionDeclaredAPI(context: HttpContext(url: .host("example.com")))
+      .auth
+      .signIn
+      .apple
+
+    XCTAssertEqual(apple.context.url.path.map { $0.urlPathComponent }, ["auth", "sign-in", "apple"])
+  }
+
   func testGetMacroBuildsRequestWithQueryParameters() async throws {
     let recorder = RequestRecorder()
     let api = StoreAPI(
@@ -161,14 +172,9 @@ final class KioskTests: XCTestCase {
         .wrap(.capture, RecordingWrapper(recorder: recorder))
     )
 
-    let result = try await api.users.search(q: "forge", page: 2)
+    let data = try await api.users.search(q: "forge", page: 2)
     let recordedRequest = await recorder.last()
     let request = try XCTUnwrap(recordedRequest)
-    let data: Data
-    switch result {
-    case .ok(let body):
-      data = body
-    }
 
     XCTAssertEqual(String(data: data, encoding: .utf8), "ok")
     XCTAssertEqual(request.method, .get)
@@ -422,10 +428,7 @@ final class KioskTests: XCTestCase {
     )
 
     let created = try await createdAPI.users.create(.init(name: "Ada"))
-    switch created {
-    case .ok(let response):
-      XCTAssertEqual(response.id, id)
-    }
+    XCTAssertEqual(created.id, id)
 
     let errorBody = try JSONEncoder().encode(
       ContractAPI.BadRequest(message: "Name is required")
@@ -451,25 +454,18 @@ final class KioskTests: XCTestCase {
     )
 
     let profile = try await profileAPI.users.profile()
-    switch profile {
-    case .ok(let response):
-      XCTAssertEqual(response.name, "Ada")
-    }
+    XCTAssertEqual(profile.name, "Ada")
 
     let deletedAPI = ContractAPI(
       context: HttpContext(url: .host("example.com"))
         .wrap(.capture, RecordingWrapper(recorder: RequestRecorder(), body: Data(), status: .noContent))
     )
 
-    let deleted = try await deletedAPI.users.delete()
-    switch deleted {
-    case .ok:
-      break
-    }
+    try await deletedAPI.users.delete()
   }
 }
 
-@Path
+@Api
 private struct TenantAPI {
   @Path
   struct Tenants {
@@ -482,7 +478,27 @@ private struct TenantAPI {
   }
 }
 
-@Path
+@Api
+struct ExtensionDeclaredAPI {}
+
+extension ExtensionDeclaredAPI {
+  @Path
+  struct Auth {}
+}
+
+extension ExtensionDeclaredAPI.Auth {
+  @Path
+  struct SignIn {}
+}
+
+extension ExtensionDeclaredAPI.Auth.SignIn {
+  @Post
+  struct Apple {
+    typealias Response = Data
+  }
+}
+
+@Api
 private struct StoreAPI {
   @Path
   struct Users {
@@ -522,6 +538,7 @@ private struct StoreAPI {
 }
 
 @Header(.accept, .json)
+@Default(Bool.self, false)
 @Api(.host("api.example.com").scheme(.http).port(.alternateHTTP).adding(path: "v1"))
 private struct ConfiguredAPI {
   @Header(.authorization, "Bearer users")
@@ -535,8 +552,8 @@ private struct LabeledConfiguredAPI {}
 @Codec(.json)
 @Rename(.snakeCase)
 @Format(Date.self, .secondsSince1970)
-@Default([String].self, [])
-@Path
+@Default(Array.self, [])
+@Api
 private struct WiredAPI {
   @Path
   struct Events {
@@ -556,7 +573,7 @@ private struct WiredAPI {
 
 @Header(.contentType, .json)
 @Header(.accept, .json)
-@Path
+@Api
 private struct ComprehensiveAPI {
   @Path
   struct Posts {
@@ -696,7 +713,7 @@ private struct ComprehensiveAPI {
   }
 }
 
-@Path
+@Api
 private struct ContractAPI {
   @Status(.badRequest)
   struct BadRequest: Error, Equatable, Codable {

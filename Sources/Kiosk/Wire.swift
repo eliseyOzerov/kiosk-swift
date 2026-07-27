@@ -84,7 +84,7 @@ public struct WireSpec: Sendable {
 
   public func `default`<Value>(_ type: Value.Type, _ value: Value) -> WireSpec {
     var spec = self
-    spec.defaults[type] = value
+    spec.defaults.set(type, value)
     return spec
   }
 }
@@ -199,9 +199,13 @@ public struct AnyWireDefault: @unchecked Sendable {
 /// Per-type fallback value registry used when wire fields are missing or null.
 public struct WireDefaults: Sendable {
   private var values: [ObjectIdentifier: AnyWireDefault]
+  private var emptyArrayDefault: Bool
+  private var emptyDictionaryDefault: Bool
 
   public init() {
     values = [:]
+    emptyArrayDefault = false
+    emptyDictionaryDefault = false
   }
 
   public subscript<Value>(_ type: Value.Type) -> Value? {
@@ -217,20 +221,65 @@ public struct WireDefaults: Sendable {
 
   public func setting<Value>(_ type: Value.Type, _ value: Value) -> WireDefaults {
     var defaults = self
-    defaults[type] = value
+    defaults.set(type, value)
     return defaults
+  }
+
+  mutating func set<Value>(_ type: Value.Type, _ value: Value) {
+    if Value.self == [Any].self, (value as? [Any])?.isEmpty == true {
+      emptyArrayDefault = true
+      return
+    }
+
+    if Value.self == [AnyHashable: Any].self, (value as? [AnyHashable: Any])?.isEmpty == true {
+      emptyDictionaryDefault = true
+      return
+    }
+
+    self[type] = value
+  }
+
+  func collectionFamilyDefault<Value>(for type: Value.Type) -> Value? {
+    if emptyArrayDefault,
+      let defaultValue = (Value.self as? any WireDefaultValue.Type)?.anyWireEmptyArray as? Value
+    {
+      return defaultValue
+    }
+
+    if emptyDictionaryDefault,
+      let defaultValue = (Value.self as? any WireDefaultValue.Type)?.anyWireEmptyDictionary as? Value
+    {
+      return defaultValue
+    }
+
+    return nil
   }
 }
 
 /// Protocol for collection-like types that can provide wire defaults.
 public protocol WireDefaultValue {
-  static var anyWireDefaultValue: Any { get }
+  static var anyWireEmptyArray: Any? { get }
+  static var anyWireEmptyDictionary: Any? { get }
+}
+
+extension WireDefaultValue {
+  public static var anyWireEmptyArray: Any? { nil }
+  public static var anyWireEmptyDictionary: Any? { nil }
 }
 
 extension Array: WireDefaultValue {
-  public static var anyWireDefaultValue: Any {
+  public static var anyWireEmptyArray: Any? {
     [] as [Element]
   }
+}
+
+extension Dictionary: WireDefaultValue {
+  public static var anyWireEmptyDictionary: Any? {
+    [:] as [Key: Value]
+  }
+}
+
+extension Set: WireDefaultValue {
 }
 
 /// Coding key type used by generated wire implementations.
@@ -271,12 +320,7 @@ extension WireSpec {
       if let explicitDefault {
         return explicitDefault
       }
-      if let typeDefault: Value = defaults[Value.self] {
-        return typeDefault
-      }
-      if let defaultValue = (Value.self as? any WireDefaultValue.Type)?
-        .anyWireDefaultValue as? Value
-      {
+      if let defaultValue = defaultValue(for: Value.self) {
         return defaultValue
       }
     }
@@ -336,8 +380,8 @@ extension WireSpec {
     format: WireFormat? = nil
   ) throws -> Value {
     if !container.contains(key) || containerValueIsNil(container, key: key) {
-      if let typeDefault: Value = defaults[Value.self] {
-        return typeDefault
+      if let defaultValue = defaultValue(for: Value.self) {
+        return defaultValue
       }
     }
 
@@ -372,6 +416,14 @@ extension WireSpec {
     }
 
     return try container.decode(Value.self, forKey: key)
+  }
+
+  private func defaultValue<Value>(for type: Value.Type) -> Value? {
+    if let typeDefault: Value = defaults[Value.self] {
+      return typeDefault
+    }
+
+    return defaults.collectionFamilyDefault(for: Value.self)
   }
 
   public func decodeIfPresent<Value: Decodable, Key: CodingKey>(

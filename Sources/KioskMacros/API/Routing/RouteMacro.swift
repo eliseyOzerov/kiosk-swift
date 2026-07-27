@@ -2,30 +2,26 @@ import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-public struct RouteMacro: MemberMacro {
+public struct RouteMacro: MemberMacro, PeerMacro {
   public static func expansion(
     of node: AttributeSyntax,
     providingMembersOf declaration: some DeclGroupSyntax,
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
-    let children = RouteExpansion.children(in: declaration, context: context)
     let defaultContextExpression = RouteExpansion.defaultContextExpression(for: declaration)
     let contextExpression = RouteExpansion.contextExpression(for: declaration)
-    let childProperties = children.map(\.storedProperty)
-    let childInitializers = children.map(\.initializer)
     let parameterBinder = RouteExpansion.parameterBinder(in: declaration, context: context)
 
     return [
       """
       var context: HttpContext
       """,
-    ] + childProperties + [
+    ] + [
       """
       init(context: HttpContext = \(raw: defaultContextExpression)) {
           let context = \(raw: contextExpression)
           self.context = context
-      \(raw: childInitializers.joined(separator: "\n"))
       }
       """,
       """
@@ -44,6 +40,21 @@ public struct RouteMacro: MemberMacro {
       }
       """,
     ] + ContextProxyExpansion.members + parameterBinder
+  }
+
+  public static func expansion(
+    of node: AttributeSyntax,
+    providingPeersOf declaration: some DeclSyntaxProtocol,
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    guard node.attributeName.trimmedDescription == "Path",
+      RouteAccessorExpansion.canGeneratePeerAccessor(in: context),
+      let declaration = declaration.as(StructDeclSyntax.self)
+    else {
+      return []
+    }
+
+    return RouteAccessorExpansion.pathAccessor(for: declaration, attribute: node, context: context)
   }
 }
 
@@ -367,6 +378,59 @@ enum RouteExpansion {
 
   private static func pathAttribute(in declaration: some DeclGroupSyntax) -> AttributeSyntax? {
     attribute(named: "Path", in: declaration)
+  }
+}
+
+enum RouteAccessorExpansion {
+  static func canGeneratePeerAccessor(in context: some MacroExpansionContext) -> Bool {
+    context.lexicalContext.contains { syntax in
+      syntax.as(StructDeclSyntax.self) != nil || syntax.as(ExtensionDeclSyntax.self) != nil
+    }
+  }
+
+  static func pathAccessor(
+    for declaration: StructDeclSyntax,
+    attribute: AttributeSyntax,
+    context: some MacroExpansionContext
+  ) -> [DeclSyntax] {
+    let childName = declaration.name.text
+    let parameters = RouteParamArgument.all(in: declaration, context: context)
+    let path = RoutePathArgument(attribute).path ?? (parameters.isEmpty ? childName.urlPathSegment : nil)
+
+    return [accessor(childName: childName, accessor: childName.lowercasedFirst, path: path)]
+  }
+
+  static func methodAccessor(
+    for declaration: StructDeclSyntax,
+    attribute: AttributeSyntax,
+    methodName: String
+  ) -> [DeclSyntax] {
+    let childName = declaration.name.text
+    let accessorName = childName.lowercasedFirst
+    let path = RoutePathArgument(attribute).path ?? defaultMethodPath(
+      childName: childName,
+      accessorName: accessorName,
+      methodName: methodName
+    )
+
+    return [accessor(childName: childName, accessor: accessorName, path: path)]
+  }
+
+  private static func defaultMethodPath(
+    childName: String,
+    accessorName: String,
+    methodName: String
+  ) -> String? {
+    accessorName == methodName.lowercased() ? nil : childName.urlPathSegment
+  }
+
+  private static func accessor(childName: String, accessor: String, path: String?) -> DeclSyntax {
+    let expression = RouteExpansion.baseContextExpression(path: path, parameters: [])
+    return """
+      var \(raw: accessor): \(raw: childName) {
+          \(raw: childName)(context: \(raw: expression))
+      }
+      """
   }
 }
 

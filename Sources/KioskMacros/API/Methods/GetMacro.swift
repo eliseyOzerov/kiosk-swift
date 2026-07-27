@@ -1,7 +1,7 @@
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-public struct GetMacro: BodyMacro, MemberMacro {
+public struct GetMacro: BodyMacro, MemberMacro, PeerMacro {
   public static func expansion(
     of node: AttributeSyntax,
     providingBodyFor declaration: some DeclSyntaxProtocol & WithOptionalCodeBlockSyntax,
@@ -17,5 +17,13 @@ public struct GetMacro: BodyMacro, MemberMacro {
     in context: some MacroExpansionContext
   ) throws -> [DeclSyntax] {
     try HTTPMethodBody.expand(.get, of: node, providingMembersOf: declaration, in: context)
+  }
+
+  public static func expansion(
+    of node: AttributeSyntax,
+    providingPeersOf declaration: some DeclSyntaxProtocol,
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    try HTTPMethodBody.expand(.get, of: node, providingPeersOf: declaration, in: context)
   }
 }

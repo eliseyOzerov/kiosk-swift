@@ -54,6 +54,7 @@ enum HTTPMethodBody {
 
     let contract = EndpointContract(declaration, context: context)
     let parameters = contract.callParameters
+    let returnClause = contract.callReturnClause
     let parameterBinder = RouteExpansion.parameterBinder(in: declaration, context: context)
     let setup = contract.requestContextSetup
     let response = endpointResponseExpression(method: method, contract: contract)
@@ -70,12 +71,31 @@ enum HTTPMethodBody {
       """,
     ] + ContextProxyExpansion.members + parameterBinder + [
       """
-      func callAsFunction(\(raw: parameters)) async throws -> Result {
+      func callAsFunction(\(raw: parameters)) async throws\(raw: returnClause) {
           \(raw: setup)
           \(raw: response)
       }
       """,
     ]
+  }
+
+  static func expand(
+    _ method: Method,
+    of node: AttributeSyntax,
+    providingPeersOf declaration: some DeclSyntaxProtocol,
+    in context: some MacroExpansionContext
+  ) throws -> [DeclSyntax] {
+    guard RouteAccessorExpansion.canGeneratePeerAccessor(in: context),
+      let declaration = declaration.as(StructDeclSyntax.self)
+    else {
+      return []
+    }
+
+    return RouteAccessorExpansion.methodAccessor(
+      for: declaration,
+      attribute: node,
+      methodName: method.attributeName
+    )
   }
 
   private static func requestExpression(path: String?, queries: [QueryParameter]) -> String {
@@ -146,7 +166,7 @@ enum HTTPMethodBody {
     return """
       let response = \(responseCall)
       try requestContext.validate(response)
-      \(successCase.returnExpression)
+      \(contract.responseReturnExpression(for: successCase))
       """
   }
 }
@@ -399,6 +419,29 @@ private struct EndpointContract {
     )
 
     return members
+  }
+
+  var callReturnClause: String {
+    guard resultCases.count == 1 else {
+      return " -> Result"
+    }
+
+    switch resultCases[0].payload {
+    case .void:
+      return ""
+    case .data:
+      return " -> Data"
+    case .decodable(let type):
+      return " -> \(type)"
+    }
+  }
+
+  func responseReturnExpression(for resultCase: EndpointResultCase) -> String {
+    guard resultCases.count == 1 else {
+      return resultCase.resultReturnExpression
+    }
+
+    return resultCase.valueReturnExpression
   }
 
   var callParameters: String {
@@ -722,7 +765,7 @@ private struct EndpointResultCase {
     }
   }
 
-  var returnExpression: String {
+  var resultReturnExpression: String {
     switch payload {
     case .void:
       return "return .\(caseName)"
@@ -730,6 +773,17 @@ private struct EndpointResultCase {
       return "return .\(caseName)(response.body)"
     case .decodable(let type):
       return "return .\(caseName)(try requestContext.decode(\(type).self, from: response).body)"
+    }
+  }
+
+  var valueReturnExpression: String {
+    switch payload {
+    case .void:
+      return "return"
+    case .data:
+      return "return response.body"
+    case .decodable(let type):
+      return "return try requestContext.decode(\(type).self, from: response).body"
     }
   }
 

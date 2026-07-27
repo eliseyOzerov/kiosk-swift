@@ -223,7 +223,7 @@ final class KioskProofTests: XCTestCase {
 
 @Wrap(.auth)
 @Header(.contentType, .json)
-@Path
+@Api
 private struct AuthPolicyProofAPI {
 	@Unwrap(.auth)
 	@Path
@@ -249,7 +249,7 @@ private struct AuthPolicyProofAPI {
 }
 
 @Header(.accept, .text)
-@Path
+@Api
 private struct TransportProofAPI {
 	@Get
 	struct Ping {
@@ -258,7 +258,7 @@ private struct TransportProofAPI {
 }
 
 @Header(.contentType, .json)
-@Path
+@Api
 private struct ContentProofAPI {
 	@Post
 	struct RootDefault {
@@ -290,7 +290,7 @@ private struct ContentProofAPI {
 	}
 }
 
-@Path
+@Api
 private struct RuntimeProofAPI {
 	@Path
 	struct Users {
@@ -329,7 +329,7 @@ private struct ApiProofAPI {
 	struct Users {}
 }
 
-@Path
+@Api
 private struct CasePathProofAPI {
 	@Path
 	struct UserProfiles {}
