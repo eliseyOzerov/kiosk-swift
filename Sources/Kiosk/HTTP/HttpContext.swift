@@ -141,7 +141,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
 
   public init(
     parent: HttpContext? = nil,
-    session: URLSession = .shared,
+    session: URLSession? = nil,
     url: UrlBuilder = .init(),
     headers: HttpHeaderStorage = .init(),
     contentType: HTTPContentType? = nil,
@@ -153,7 +153,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
     wrappers: WrapperRegistry<any HttpWrapper> = .init()
   ) {
     self.parent = parent
-    sessionOverride = parent == nil || session !== URLSession.shared ? session : nil
+    sessionOverride = session
     schemeOverride = parent == nil ? url.scheme : nil
     hostOverride = parent == nil || url.host != nil ? .some(url.host) : nil
     portOverride = parent == nil || url.port != nil ? .some(url.port) : nil
@@ -182,9 +182,11 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
   }
 
   public func fold() -> ResolvedHttpContext {
-    var resolved = parent?.fold() ?? ResolvedHttpContext()
+    var resolved = parent?.fold() ?? ResolvedHttpContext(
+      session: sessionOverride ?? .shared
+    )
 
-    if let sessionOverride {
+    if parent != nil, let sessionOverride {
       resolved.session = sessionOverride
     }
 

@@ -90,6 +90,18 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(context.wrappers.activeKeys, [])
   }
 
+  func testHttpContextResolvesSharedSessionWhenFolded() {
+    XCTAssertTrue(HttpContext().fold().session === URLSession.shared)
+  }
+
+  func testHttpContextPreservesExplicitSessionThroughChildren() {
+    let session = URLSession(configuration: .ephemeral)
+    let context = HttpContext(session: session)
+
+    XCTAssertTrue(context.fold().session === session)
+    XCTAssertTrue(context.child().fold().session === session)
+  }
+
   func testApiRootConvenienceInitializersBuildContext() {
     let shorthand = StoreAPI("example.com")
     XCTAssertEqual(shorthand.context.url.host, "example.com")
