@@ -1,3 +1,5 @@
+import Foundation
+
 // MARK: - Routing macros
 
 /// Generates root API context storage.
@@ -67,8 +69,8 @@ public macro Header(_ name: String, _ value: String) =
 /// Sets request and resource timeouts on an API path context or endpoint.
 @attached(member, names: arbitrary)
 public macro Timeout(
-  request: Double? = nil,
-  resource: Double? = nil
+  request: TimeInterval? = nil,
+  resource: TimeInterval? = nil
 ) =
   #externalMacro(module: "KioskMacros", type: "TimeoutMacro")
 

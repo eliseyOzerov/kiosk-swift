@@ -117,7 +117,7 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func timeout(request: Double? = nil, resource: Double? = nil) -> Self {
+      func timeout(request: TimeInterval? = nil, resource: TimeInterval? = nil) -> Self {
           Self(context: context.timeout(request: request, resource: resource))
       }
       """,
