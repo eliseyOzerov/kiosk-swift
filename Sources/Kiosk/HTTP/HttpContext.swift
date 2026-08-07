@@ -2,31 +2,22 @@ import Foundation
 
 // MARK: - Context base
 
-/// Fluent HTTP client context with URL, headers, options, wire, errors, and wrappers.
-public struct HttpContext: RequestContext, WrapperContext, Sendable {
-  /// The base session
+/// Resolved HTTP context snapshot produced by folding a context node with its parents.
+public struct ResolvedHttpContext: Sendable {
   public var session: URLSession
-  /// The url builder we're using under the hood
   public var url: UrlBuilder
-  /// The currently active headers
-  public var headers: [AnyHttpHeader]
-  /// Request content type inherited by generated API endpoints.
+  public var headers: HttpHeaderStorage
   public var contentType: HTTPContentType?
-  /// Accepted response content type inherited by generated API endpoints.
   public var accept: HTTPContentType?
-  /// The options for the URL request
   public var options: HttpOptions
-  /// Wire settings for this context
   public var wire: WireSpec
-  /// Error handling for this context
   public var errors: HttpErrorDecoding
-  /// Middleware for this context
   public var wrappers: WrapperRegistry<any HttpWrapper>
 
   public init(
     session: URLSession = .shared,
     url: UrlBuilder = .init(),
-    headers: [AnyHttpHeader] = [],
+    headers: HttpHeaderStorage = .init(),
     contentType: HTTPContentType? = nil,
     accept: HTTPContentType? = nil,
     options: HttpOptions = .init(),
@@ -46,6 +37,205 @@ public struct HttpContext: RequestContext, WrapperContext, Sendable {
   }
 }
 
+/// Fluent HTTP client context node with inherited parent context.
+public final class HttpContext: RequestContext, WrapperContext, @unchecked Sendable {
+  /// Parent context inherited by this node.
+  public let parent: HttpContext?
+
+  private var sessionOverride: URLSession?
+  private var schemeOverride: UrlScheme?
+  private var hostOverride: String??
+  private var portOverride: UrlPort??
+  private var pathOverride: [UrlPathComponent]?
+  private var queryOverride: [UrlQueryItem]?
+  private var appendedPath: [UrlPathComponent]
+  private var appendedQuery: [UrlQueryItem]
+  private var localHeaders: HttpHeaderStorage
+  private var replacesHeaders: Bool
+  private var optionsOverride: HttpOptions?
+  private var contentTypeOverride: HTTPContentType?
+  private var acceptOverride: HTTPContentType?
+  private var wireReplacement: WireSpec?
+  private var localCodec: WireCodec?
+  private var localRenaming: FieldRenamingStrategy?
+  private var localFormats: WireValueFormats
+  private var localDefaults: WireDefaults
+  private var errorsReplacement: HttpErrorDecoding?
+  private var localErrors: HttpErrorDecoding
+  private var localWrappers: WrapperRegistry<any HttpWrapper>
+
+  /// The base session.
+  public var session: URLSession {
+    get { fold().session }
+    set { sessionOverride = newValue }
+  }
+
+  /// The folded URL builder.
+  public var url: UrlBuilder {
+    get { fold().url }
+    set {
+      schemeOverride = newValue.scheme
+      hostOverride = .some(newValue.host)
+      portOverride = .some(newValue.port)
+      pathOverride = newValue.path
+      queryOverride = newValue.query
+      appendedPath = []
+      appendedQuery = []
+    }
+  }
+
+  /// The folded headers.
+  public var headers: HttpHeaderStorage {
+    get { fold().headers }
+    set {
+      localHeaders = newValue
+      replacesHeaders = true
+    }
+  }
+
+  /// Request content type inherited by generated API endpoints.
+  public var contentType: HTTPContentType? {
+    get { fold().contentType }
+    set { contentTypeOverride = newValue }
+  }
+
+  /// Accepted response content type inherited by generated API endpoints.
+  public var accept: HTTPContentType? {
+    get { fold().accept }
+    set { acceptOverride = newValue }
+  }
+
+  /// The options for the URL request.
+  public var options: HttpOptions {
+    get { fold().options }
+    set { optionsOverride = newValue }
+  }
+
+  /// Wire settings for this context.
+  public var wire: WireSpec {
+    get { fold().wire }
+    set { wireReplacement = newValue }
+  }
+
+  /// Error handling for this context.
+  public var errors: HttpErrorDecoding {
+    get { fold().errors }
+    set { errorsReplacement = newValue }
+  }
+
+  /// Middleware for this context.
+  public var wrappers: WrapperRegistry<any HttpWrapper> {
+    get { fold().wrappers }
+    set { localWrappers = newValue }
+  }
+
+  public init(
+    parent: HttpContext? = nil,
+    session: URLSession = .shared,
+    url: UrlBuilder = .init(),
+    headers: HttpHeaderStorage = .init(),
+    contentType: HTTPContentType? = nil,
+    accept: HTTPContentType? = nil,
+    options: HttpOptions = .init(),
+    wire: WireSpec = .default,
+    errors: HttpErrorDecoding = .init(),
+    wrappers: WrapperRegistry<any HttpWrapper> = .init()
+  ) {
+    self.parent = parent
+    sessionOverride = parent == nil || session !== URLSession.shared ? session : nil
+    schemeOverride = parent == nil ? url.scheme : nil
+    hostOverride = parent == nil || url.host != nil ? .some(url.host) : nil
+    portOverride = parent == nil || url.port != nil ? .some(url.port) : nil
+    pathOverride = parent == nil || !url.path.isEmpty ? url.path : nil
+    queryOverride = parent == nil || !url.query.isEmpty ? url.query : nil
+    appendedPath = []
+    appendedQuery = []
+    localHeaders = headers
+    replacesHeaders = parent == nil || !headers.isEmpty
+    optionsOverride = parent == nil ? options : nil
+    contentTypeOverride = contentType
+    acceptOverride = accept
+    wireReplacement = parent == nil ? wire : nil
+    localCodec = nil
+    localRenaming = nil
+    localFormats = .init()
+    localDefaults = .init()
+    errorsReplacement = parent == nil ? errors : nil
+    localErrors = .init()
+    localWrappers = wrappers
+  }
+
+  public func child() -> HttpContext {
+    HttpContext(parent: self)
+  }
+
+  public func fold() -> ResolvedHttpContext {
+    var resolved = parent?.fold() ?? ResolvedHttpContext()
+
+    if let sessionOverride {
+      resolved.session = sessionOverride
+    }
+
+    if let schemeOverride {
+      resolved.url.scheme = schemeOverride
+    }
+    if let hostOverride {
+      resolved.url.host = hostOverride
+    }
+    if let portOverride {
+      resolved.url.port = portOverride
+    }
+    if let pathOverride {
+      resolved.url.path = pathOverride
+    }
+    for path in appendedPath {
+      resolved.url = resolved.url.adding(path: path)
+    }
+    if let queryOverride {
+      resolved.url.query = queryOverride
+    }
+    for query in appendedQuery {
+      resolved.url = resolved.url.adding(query: query)
+    }
+
+    if replacesHeaders {
+      resolved.headers = localHeaders
+    } else {
+      resolved.headers.set(localHeaders)
+    }
+
+    if let optionsOverride {
+      resolved.options = optionsOverride
+    }
+    if let contentTypeOverride {
+      resolved.contentType = contentTypeOverride
+    }
+    if let acceptOverride {
+      resolved.accept = acceptOverride
+    }
+
+    if let wireReplacement {
+      resolved.wire = wireReplacement
+    }
+    if let localCodec {
+      resolved.wire.codec = localCodec
+    }
+    if let localRenaming {
+      resolved.wire.fields.renaming = localRenaming
+    }
+    resolved.wire.formats = resolved.wire.formats.merging(localFormats)
+    resolved.wire.defaults = resolved.wire.defaults.merging(localDefaults)
+
+    if let errorsReplacement {
+      resolved.errors = errorsReplacement
+    }
+    resolved.errors = resolved.errors.merging(localErrors)
+    resolved.wrappers = resolved.wrappers.merging(localWrappers)
+
+    return resolved
+  }
+}
+
 extension HttpContext {
   public typealias Response<Body> = HttpResponse<Body>
 
@@ -59,18 +249,64 @@ extension HttpContext {
   }
 }
 
+/// Error thrown for non-success HTTP responses with a registered `@Status` payload.
+public struct HttpError<Payload: Decodable & Sendable>: Swift.Error {
+  public let code: HTTPStatusCode
+  public let message: String?
+  public let payload: Payload
+
+  public init(_ code: HTTPStatusCode, message: String? = nil, payload: Payload) {
+    self.code = code
+    self.message = message
+    self.payload = payload
+  }
+
+  public init(code: HTTPStatusCode, message: String? = nil, payload: Payload) {
+    self.code = code
+    self.message = message
+    self.payload = payload
+  }
+
+  public var status: HTTPStatusCode {
+    code
+  }
+}
+
+/// Empty payload used for status-only HTTP errors.
+public struct EmptyHttpErrorPayload: Codable, Sendable, Equatable {
+  public init() {}
+}
+
+extension HttpError where Payload == EmptyHttpErrorPayload {
+  public init(_ code: HTTPStatusCode, message: String? = nil) {
+    self.init(code, message: message, payload: EmptyHttpErrorPayload())
+  }
+}
+
+extension HttpError: LocalizedError {
+  public var errorDescription: String? {
+    message ?? code.reasonPhrase
+  }
+}
+
+extension HttpError: Equatable where Payload: Equatable {}
+
+private struct HttpErrorMessage: Decodable {
+  let message: String?
+}
+
 /// Sendable request value passed through HTTP wrappers and transport.
 public struct HttpRequest: Sendable {
   public var method: HTTPMethod
   public var url: UrlBuilder
-  public var headers: [AnyHttpHeader]
+  public var headers: HttpHeaderStorage
   public var body: Data?
   public var options: HttpOptions
 
   public init(
     method: HTTPMethod,
     url: UrlBuilder,
-    headers: [AnyHttpHeader] = [],
+    headers: HttpHeaderStorage = .init(),
     body: Data? = nil,
     options: HttpOptions = .init()
   ) {
@@ -122,10 +358,18 @@ extension HttpResponse {
 
 /// Middleware protocol for wrapping HTTP request execution.
 public protocol HttpWrapper: Sendable {
+  var key: WrapperKey { get }
+
   func send(
     _ request: HttpRequest,
     next: @Sendable (HttpRequest) async throws -> HttpResponse<Data>
   ) async throws -> HttpResponse<Data>
+}
+
+extension HttpWrapper {
+  public var key: WrapperKey {
+    WrapperKey(String(reflecting: Self.self))
+  }
 }
 
 /// Registry mapping status codes or classes to typed error decoders.
@@ -141,21 +385,21 @@ public struct HttpErrorDecoding: Sendable {
     self.classDecoders = classDecoders
   }
 
-  public func throwing<Failure: Decodable & Swift.Error>(
-    _ failure: Failure.Type,
+  public func throwing<Payload: Decodable & Sendable>(
+    _ payload: Payload.Type,
     for statusCode: HTTPStatusCode
   ) -> HttpErrorDecoding {
     var decoding = self
-    decoding.statusDecoders[statusCode] = HttpErrorDecoder(Failure.self)
+    decoding.statusDecoders[statusCode] = HttpErrorDecoder(Payload.self)
     return decoding
   }
 
-  public func throwing<Failure: Decodable & Swift.Error>(
-    _ failure: Failure.Type,
+  public func throwing<Payload: Decodable & Sendable>(
+    _ payload: Payload.Type,
     for statusClass: HTTPStatusClass
   ) -> HttpErrorDecoding {
     var decoding = self
-    decoding.classDecoders[statusClass] = HttpErrorDecoder(Failure.self)
+    decoding.classDecoders[statusClass] = HttpErrorDecoder(Payload.self)
     return decoding
   }
 
@@ -168,6 +412,17 @@ public struct HttpErrorDecoding: Sendable {
     let decoder = statusDecoders[statusCode] ?? classDecoders[statusCode.statusClass]
     return try decoder?.decode(data, response, wire)
   }
+
+  func merging(_ other: HttpErrorDecoding) -> HttpErrorDecoding {
+    var decoding = self
+    for (statusCode, decoder) in other.statusDecoders {
+      decoding.statusDecoders[statusCode] = decoder
+    }
+    for (statusClass, decoder) in other.classDecoders {
+      decoding.classDecoders[statusClass] = decoder
+    }
+    return decoding
+  }
 }
 
 /// Type-erased decoder for converting HTTP error bodies into Swift errors.
@@ -175,11 +430,13 @@ public struct HttpErrorDecoder: Sendable {
   private let decodeError:
     @Sendable (Data, HTTPURLResponse, WireSpec) throws -> any Swift.Error
 
-  public init<Failure: Decodable & Swift.Error>(_ failure: Failure.Type) {
-    decodeError = { data, _, wire in
+  public init<Payload: Decodable & Sendable>(_ payload: Payload.Type) {
+    decodeError = { data, response, wire in
       let decoder = JSONDecoder()
       decoder.userInfo[.wireSpec] = wire
-      return try decoder.decode(Failure.self, from: data)
+      let payload = try decoder.decode(Payload.self, from: data)
+      let message = try? decoder.decode(HttpErrorMessage.self, from: data).message
+      return HttpError(code: HTTPStatusCode(response.statusCode), message: message, payload: payload)
     }
   }
 
@@ -234,6 +491,17 @@ public struct HttpOptions: Sendable {
     self.allowsExpensiveNetworkAccess = allowsExpensiveNetworkAccess
     self.allowsConstrainedNetworkAccess = allowsConstrainedNetworkAccess
     self.assumesHTTP3Capable = assumesHTTP3Capable
+  }
+
+  func merging(_ other: HttpOptions) -> HttpOptions {
+    HttpOptions(
+      cachePolicy: other.cachePolicy ?? cachePolicy,
+      timeoutInterval: other.timeoutInterval ?? timeoutInterval,
+      allowsCellularAccess: other.allowsCellularAccess ?? allowsCellularAccess,
+      allowsExpensiveNetworkAccess: other.allowsExpensiveNetworkAccess ?? allowsExpensiveNetworkAccess,
+      allowsConstrainedNetworkAccess: other.allowsConstrainedNetworkAccess ?? allowsConstrainedNetworkAccess,
+      assumesHTTP3Capable: other.assumesHTTP3Capable ?? assumesHTTP3Capable
+    )
   }
 }
 
@@ -395,76 +663,233 @@ private extension Data {
 // MARK: - Fluent builder
 
 extension HttpContext {
+  public func url(_ url: UrlBuilder) -> HttpContext {
+    self.url = url
+    return self
+  }
+
+  public func scheme(_ scheme: UrlScheme) -> HttpContext {
+    schemeOverride = scheme
+    return self
+  }
+
+  public func host(_ host: String?) -> HttpContext {
+    hostOverride = .some(host)
+    return self
+  }
+
+  public func port(_ port: UrlPort?) -> HttpContext {
+    portOverride = .some(port)
+    return self
+  }
+
+  public func path(_ path: [UrlPathComponent]) -> HttpContext {
+    pathOverride = path
+    appendedPath = []
+    return self
+  }
+
+  public func query(_ query: [UrlQueryItem]) -> HttpContext {
+    queryOverride = query
+    appendedQuery = []
+    return self
+  }
+
+  public func headers(_ headers: HttpHeaderStorage) -> HttpContext {
+    localHeaders = headers
+    replacesHeaders = true
+    return self
+  }
+
+  public func headers(_ headers: [AnyHttpHeader]) -> HttpContext {
+    self.headers(HttpHeaderStorage(headers))
+  }
+
+  public func options(_ options: HttpOptions) -> HttpContext {
+    optionsOverride = options
+    return self
+  }
+
+  public func adding(path component: UrlPathComponent) -> HttpContext {
+    if pathOverride != nil {
+      pathOverride?.append(component)
+    } else {
+      appendedPath.append(component)
+    }
+    return self
+  }
+
+  public func adding(query item: UrlQueryItem) -> HttpContext {
+    if queryOverride != nil {
+      queryOverride?.append(item)
+    } else {
+      appendedQuery.append(item)
+    }
+    return self
+  }
+
+  public func adding(query items: [UrlQueryItem]) -> HttpContext {
+    for item in items {
+      _ = adding(query: item)
+    }
+    return self
+  }
+
+  public func adding(header: AnyHttpHeader) -> HttpContext {
+    localHeaders.set(header)
+    return self
+  }
+
+  public func adding<Value: Sendable>(header: HttpHeader<Value>) -> HttpContext {
+    adding(header: header.erased)
+  }
+
+  public func set(header: AnyHttpHeader) -> HttpContext {
+    adding(header: header)
+  }
+
+  public func set<Value: Sendable>(header: HttpHeader<Value>) -> HttpContext {
+    adding(header: header)
+  }
+
+  public func adding(headers: [AnyHttpHeader]) -> HttpContext {
+    localHeaders.set(headers)
+    return self
+  }
+
+  public func adding(headers: HttpHeaderStorage) -> HttpContext {
+    localHeaders.set(headers)
+    return self
+  }
+
   public func session(_ session: URLSession) -> HttpContext {
-    var context = self
-    context.session = session
-    return context
+    sessionOverride = session
+    return self
   }
 
   public func wire(_ wire: WireSpec) -> HttpContext {
-    var context = self
-    context.wire = wire
-    return context
+    wireReplacement = wire
+    return self
   }
 
   public func codec(_ codec: WireCodec) -> HttpContext {
-    var context = self
-    context.wire = context.wire.codec(codec)
-    return context
+    if var wireReplacement {
+      wireReplacement.codec = codec
+      self.wireReplacement = wireReplacement
+    } else {
+      localCodec = codec
+    }
+    return self
   }
 
   public func rename(_ renaming: FieldRenamingStrategy) -> HttpContext {
-    var context = self
-    context.wire = context.wire.renaming(renaming)
-    return context
+    if var wireReplacement {
+      wireReplacement.fields.renaming = renaming
+      self.wireReplacement = wireReplacement
+    } else {
+      localRenaming = renaming
+    }
+    return self
   }
 
   public func format<Value>(_ type: Value.Type, _ format: WireFormat) -> HttpContext {
-    var context = self
-    context.wire = context.wire.format(type, format)
-    return context
+    if var wireReplacement {
+      wireReplacement.formats[type] = format
+      self.wireReplacement = wireReplacement
+    } else {
+      localFormats[type] = format
+    }
+    return self
   }
 
   public func wireDefault<Value>(_ type: Value.Type, _ value: Value) -> HttpContext {
-    var context = self
-    context.wire = context.wire.default(type, value)
-    return context
+    if var wireReplacement {
+      wireReplacement.defaults.set(type, value)
+      self.wireReplacement = wireReplacement
+    } else {
+      localDefaults.set(type, value)
+    }
+    return self
   }
 
   public func errors(_ errors: HttpErrorDecoding) -> HttpContext {
-    var context = self
-    context.errors = errors
-    return context
+    errorsReplacement = errors
+    return self
   }
 
   public func content(_ contentType: HTTPContentType) -> HttpContext {
-    var context = self
-    context.contentType = contentType
-    return context
+    contentTypeOverride = contentType
+    return self
   }
 
   public func accept(_ accept: HTTPContentType) -> HttpContext {
-    var context = self
-    context.accept = accept
-    return context
+    acceptOverride = accept
+    return self
   }
 
-  public func throwing<Failure: Decodable & Swift.Error>(
+  public func throwing<Failure: Decodable & Sendable>(
     _ failure: Failure.Type,
     for statusCode: HTTPStatusCode
   ) -> HttpContext {
-    var context = self
-    context.errors = context.errors.throwing(Failure.self, for: statusCode)
-    return context
+    localErrors = localErrors.throwing(Failure.self, for: statusCode)
+    return self
   }
 
-  public func throwing<Failure: Decodable & Swift.Error>(
+  public func throwing<Failure: Decodable & Sendable>(
     _ failure: Failure.Type,
     for statusClass: HTTPStatusClass
   ) -> HttpContext {
-    var context = self
-    context.errors = context.errors.throwing(Failure.self, for: statusClass)
-    return context
+    localErrors = localErrors.throwing(Failure.self, for: statusClass)
+    return self
+  }
+
+  public func register(_ key: WrapperKey, _ wrapper: any HttpWrapper) -> HttpContext {
+    localWrappers[key] = wrapper
+    return self
+  }
+
+  public func register(
+    _ key: WrapperKey,
+    factory: @escaping @Sendable () -> any HttpWrapper
+  ) -> HttpContext {
+    localWrappers.set(key, factory: factory)
+    return self
+  }
+
+  public func wrap(
+    _ key: WrapperKey,
+    _ wrapper: (any HttpWrapper)? = nil,
+    activate: Bool = true
+  ) -> HttpContext {
+    if let wrapper {
+      localWrappers[key] = wrapper
+    }
+    if activate {
+      localWrappers.activate(key)
+    }
+    return self
+  }
+
+  public func wrap(
+    _ key: WrapperKey,
+    activate: Bool = true,
+    factory: @escaping @Sendable () -> any HttpWrapper
+  ) -> HttpContext {
+    localWrappers.set(key, factory: factory)
+    if activate {
+      localWrappers.activate(key)
+    }
+    return self
+  }
+
+  public func unwrap(_ key: WrapperKey) -> HttpContext {
+    localWrappers.deactivate(key)
+    return self
+  }
+
+  public func unwrapped() -> HttpContext {
+    localWrappers.deactivateAll()
+    return self
   }
 }
 
@@ -607,8 +1032,9 @@ extension HttpContext {
     for method: HTTPMethod,
     json requestBody: RequestBody
   ) async throws -> Response<Data> {
+    let context = fold()
     let encoder = JSONEncoder()
-    encoder.userInfo[.wireSpec] = wire
+    encoder.userInfo[.wireSpec] = context.wire
     let body = try encoder.encode(requestBody)
     return try await send(
       method: method,
@@ -622,11 +1048,14 @@ extension HttpContext {
     for method: HTTPMethod,
     content: Content
   ) async throws -> Response<Data> {
-    let contentType = self.contentType ?? headerContentType ?? .json
+    let context = fold()
+    let contentType = context.contentType
+      ?? context.headers.get(.contentType).flatMap(HTTPContentType.init(validating:))
+      ?? .json
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
-      wire: wire
+      wire: context.wire
     )
     return try await send(
       method: method,
@@ -637,7 +1066,7 @@ extension HttpContext {
   }
 
   func makeURL() throws -> URL {
-    try makeURL(from: url)
+    try makeURL(from: fold().url)
   }
 
   func makeURL(from url: UrlBuilder) throws -> URL {
@@ -658,8 +1087,9 @@ extension HttpContext {
     for method: HTTPMethod,
     json requestBody: RequestBody
   ) async throws -> Response<Data> {
+    let context = fold()
     let encoder = JSONEncoder()
-    encoder.userInfo[.wireSpec] = wire
+    encoder.userInfo[.wireSpec] = context.wire
     let body = try encoder.encode(requestBody)
     return try await send(method: method, body: body, headers: [HttpHeader(.contentType, .json).erased])
   }
@@ -668,18 +1098,20 @@ extension HttpContext {
     for method: HTTPMethod,
     content: Content
   ) async throws -> Response<Data> {
-    let contentType = self.contentType ?? headerContentType ?? .json
+    let context = fold()
+    let contentType = context.contentType
+      ?? context.headers.get(.contentType).flatMap(HTTPContentType.init(validating:))
+      ?? .json
     let body = try HTTPContentEncoder.encode(
       content,
       as: contentType,
-      wire: wire
+      wire: context.wire
     )
     return try await send(method: method, body: body, headers: [HttpHeader(.contentType, contentType).erased])
   }
 
   private var headerContentType: HTTPContentType? {
-    headers.last { $0.name.caseInsensitiveCompare(HttpHeaderKey<HTTPContentType>.contentType.name) == .orderedSame }
-      .flatMap { HTTPContentType(validating: $0.value) }
+    headers.get(.contentType).flatMap(HTTPContentType.init(validating:))
   }
 
   func send(
@@ -689,19 +1121,20 @@ extension HttpContext {
     options overrideOptions: HttpOptions? = nil,
     validatesStatus: Bool = true
   ) async throws -> Response<Data> {
+    let context = fold()
     let request = HttpRequest(
       method: method,
-      url: url,
-      headers: headers + additionalHeaders,
+      url: context.url,
+      headers: context.headers.merging(additionalHeaders),
       body: body,
-      options: overrideOptions ?? options
+      options: overrideOptions ?? context.options
     )
 
     let transport: @Sendable (HttpRequest) async throws -> Response<Data> = { request in
-      try await self.perform(request, validatesStatus: validatesStatus)
+      try await self.perform(request, in: context, validatesStatus: validatesStatus)
     }
 
-    let pipeline = activeWrappers.reversed().reduce(transport) { next, wrapper in
+    let pipeline = activeWrappers(in: context).reversed().reduce(transport) { next, wrapper in
       { request in
         try await wrapper.send(request, next: next)
       }
@@ -710,12 +1143,16 @@ extension HttpContext {
     return try await pipeline(request)
   }
 
-  private func perform(_ request: HttpRequest, validatesStatus: Bool) async throws -> Response<Data> {
+  private func perform(
+    _ request: HttpRequest,
+    in context: ResolvedHttpContext,
+    validatesStatus: Bool
+  ) async throws -> Response<Data> {
     var urlRequest = URLRequest(url: try makeURL(from: request.url))
     urlRequest.httpMethod = request.method.rawValue
     urlRequest.httpBody = request.body
     urlRequest.setValue(
-      (accept ?? .json).rawValue,
+      (context.accept ?? .json).rawValue,
       forHTTPHeaderField: HttpHeaderKey<HTTPContentType>.accept.name)
 
     request.options.apply(to: &urlRequest)
@@ -724,7 +1161,7 @@ extension HttpContext {
       urlRequest.setValue(header.value, forHTTPHeaderField: header.name)
     }
 
-    let (data, response) = try await session.data(for: urlRequest)
+    let (data, response) = try await context.session.data(for: urlRequest)
 
     guard let httpResponse = response as? HTTPURLResponse else {
       throw Error.invalidResponse(response)
@@ -732,11 +1169,11 @@ extension HttpContext {
 
     let status = HTTPStatusCode(httpResponse.statusCode)
     guard status.isSuccess || !validatesStatus else {
-      if let error = try errors.decode(
+      if let error = try context.errors.decode(
         statusCode: status,
         data: data,
         response: httpResponse,
-        wire: wire
+        wire: context.wire
       ) {
         throw error
       }
@@ -758,8 +1195,9 @@ extension HttpContext {
     _ responseBody: ResponseBody.Type,
     from response: Response<Data>
   ) throws -> Response<ResponseBody> {
+    let context = fold()
     let decoder = JSONDecoder()
-    decoder.userInfo[.wireSpec] = wire
+    decoder.userInfo[.wireSpec] = context.wire
     return Response(
       body: try decoder.decode(ResponseBody.self, from: response.body),
       status: response.status,
@@ -775,7 +1213,8 @@ extension HttpContext {
       return
     }
 
-    let url = response.url ?? (try? makeURL()) ?? URL(string: "https://kiosk.local")!
+    let context = fold()
+    let url = response.url ?? (try? makeURL(from: context.url)) ?? URL(string: "https://kiosk.local")!
     let headerFields = Dictionary(uniqueKeysWithValues: response.headers.map { ($0.name, $0.value) })
     let httpResponse = HTTPURLResponse(
       url: url,
@@ -784,11 +1223,11 @@ extension HttpContext {
       headerFields: headerFields
     )!
 
-    if let error = try errors.decode(
+    if let error = try context.errors.decode(
       statusCode: response.status,
       data: response.body,
       response: httpResponse,
-      wire: wire
+      wire: context.wire
     ) {
       throw error
     }
@@ -798,8 +1237,8 @@ extension HttpContext {
 }
 
 extension HttpContext {
-  fileprivate var activeWrappers: [any HttpWrapper] {
-    wrappers.activeKeys.compactMap { wrappers[$0] }
+  fileprivate func activeWrappers(in context: ResolvedHttpContext) -> [any HttpWrapper] {
+    context.wrappers.activeKeys.compactMap { context.wrappers.resolve($0) }
   }
 }
 

@@ -185,6 +185,14 @@ public struct WireValueFormats: Sendable {
   public func data(_ format: WireFormat) -> WireValueFormats {
     setting(Data.self, format)
   }
+
+  func merging(_ other: WireValueFormats) -> WireValueFormats {
+    var formats = self
+    for (type, format) in other.formats {
+      formats.formats[type] = format
+    }
+    return formats
+  }
 }
 
 /// Type-erased default value stored by `WireDefaults`.
@@ -253,6 +261,16 @@ public struct WireDefaults: Sendable {
     }
 
     return nil
+  }
+
+  func merging(_ other: WireDefaults) -> WireDefaults {
+    var defaults = self
+    for (type, value) in other.values {
+      defaults.values[type] = value
+    }
+    defaults.emptyArrayDefault = defaults.emptyArrayDefault || other.emptyArrayDefault
+    defaults.emptyDictionaryDefault = defaults.emptyDictionaryDefault || other.emptyDictionaryDefault
+    return defaults
   }
 }
 

@@ -99,7 +99,7 @@ enum HTTPMethodBody {
   }
 
   private static func requestExpression(path: String?, queries: [QueryParameter]) -> String {
-    var expression = "context"
+    var expression = "context.child()"
     if let path {
       expression += "\n    .adding(path: \"\(path)\")"
     }

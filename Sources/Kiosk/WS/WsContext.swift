@@ -4,13 +4,13 @@ import Foundation
 public struct WsContext: RequestContext {
   public var session: URLSession
   public var url: UrlBuilder
-  public var headers: [AnyHttpHeader]
+  public var headers: HttpHeaderStorage
   public var options: WsOptions
 
   public init(
     session: URLSession = .shared,
     url: UrlBuilder = .init(scheme: .wss),
-    headers: [AnyHttpHeader] = [],
+    headers: HttpHeaderStorage = .init(),
     options: WsOptions = .init()
   ) {
     self.session = session

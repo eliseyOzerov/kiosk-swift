@@ -478,7 +478,7 @@ private struct AuthorizationWrapper: HttpWrapper {
 	) async throws -> HttpResponse<Data> {
 		await events.append("auth")
 		var request = request
-		request.headers.append(AnyHttpHeader(name: HttpHeaderKey<String>.authorization.name, value: "Bearer proof"))
+		request.headers.set(.authorization, .bearer("proof"))
 		return try await next(request)
 	}
 }

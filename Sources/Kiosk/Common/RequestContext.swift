@@ -3,7 +3,7 @@ public protocol RequestContext {
   associatedtype Options
 
   var url: UrlBuilder { get set }
-  var headers: [AnyHttpHeader] { get set }
+  var headers: HttpHeaderStorage { get set }
   var options: Options { get set }
 }
 
@@ -44,10 +44,14 @@ extension RequestContext {
     return context
   }
 
-  public func headers(_ headers: [AnyHttpHeader]) -> Self {
+  public func headers(_ headers: HttpHeaderStorage) -> Self {
     var context = self
     context.headers = headers
     return context
+  }
+
+  public func headers(_ headers: [AnyHttpHeader]) -> Self {
+    self.headers(HttpHeaderStorage(headers))
   }
 
   public func options(_ options: Options) -> Self {
@@ -78,7 +82,7 @@ extension RequestContext {
 
   public func adding(header: AnyHttpHeader) -> Self {
     var context = self
-    context.headers.append(header)
+    context.headers.set(header)
     return context
   }
 
@@ -86,9 +90,23 @@ extension RequestContext {
     adding(header: header.erased)
   }
 
+  public func set(header: AnyHttpHeader) -> Self {
+    adding(header: header)
+  }
+
+  public func set<Value: Sendable>(header: HttpHeader<Value>) -> Self {
+    adding(header: header)
+  }
+
   public func adding(headers: [AnyHttpHeader]) -> Self {
     var context = self
-    context.headers.append(contentsOf: headers)
+    context.headers.set(headers)
+    return context
+  }
+
+  public func adding(headers: HttpHeaderStorage) -> Self {
+    var context = self
+    context.headers.set(headers)
     return context
   }
 }
@@ -114,11 +132,17 @@ extension WrapperKey {
 /// Registry storing wrappers and their active execution order.
 public struct WrapperRegistry<Wrapper: Sendable>: Sendable {
   private var storage: [WrapperKey: Wrapper]
+  private var factories: [WrapperKey: @Sendable () -> Wrapper]
   public private(set) var activeKeys: [WrapperKey]
+  private var inactiveKeys: Set<WrapperKey>
+  private var deactivatesAll: Bool
 
   public init(_ storage: [WrapperKey: Wrapper] = [:], activeKeys: [WrapperKey] = []) {
     self.storage = storage
+    self.factories = [:]
     self.activeKeys = activeKeys
+    self.inactiveKeys = []
+    self.deactivatesAll = false
   }
 
   public subscript(_ key: WrapperKey) -> Wrapper? {
@@ -127,10 +151,22 @@ public struct WrapperRegistry<Wrapper: Sendable>: Sendable {
     }
     set {
       storage[key] = newValue
+      factories[key] = nil
     }
   }
 
+  public mutating func set(_ key: WrapperKey, factory: @escaping @Sendable () -> Wrapper) {
+    storage[key] = nil
+    factories[key] = factory
+  }
+
+  func resolve(_ key: WrapperKey) -> Wrapper? {
+    storage[key] ?? factories[key]?()
+  }
+
   public mutating func activate(_ key: WrapperKey) {
+    inactiveKeys.remove(key)
+    deactivatesAll = false
     if !activeKeys.contains(key) {
       activeKeys.append(key)
     }
@@ -138,10 +174,41 @@ public struct WrapperRegistry<Wrapper: Sendable>: Sendable {
 
   public mutating func deactivate(_ key: WrapperKey) {
     activeKeys.removeAll { $0 == key }
+    inactiveKeys.insert(key)
   }
 
   public mutating func deactivateAll() {
     activeKeys.removeAll()
+    inactiveKeys.removeAll()
+    deactivatesAll = true
+  }
+
+  func merging(_ local: WrapperRegistry<Wrapper>) -> WrapperRegistry<Wrapper> {
+    var merged = self
+
+    for (key, wrapper) in local.storage {
+      merged.storage[key] = wrapper
+      merged.factories[key] = nil
+    }
+
+    for (key, factory) in local.factories {
+      merged.storage[key] = nil
+      merged.factories[key] = factory
+    }
+
+    if local.deactivatesAll {
+      merged.activeKeys.removeAll()
+    }
+
+    for key in local.inactiveKeys {
+      merged.activeKeys.removeAll { $0 == key }
+    }
+
+    for key in local.activeKeys where !merged.activeKeys.contains(key) {
+      merged.activeKeys.append(key)
+    }
+
+    return merged
   }
 }
 

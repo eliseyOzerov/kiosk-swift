@@ -97,6 +97,11 @@ enum ContextProxyExpansion {
       }
       """,
       """
+      func headers(_ headers: HttpHeaderStorage) -> Self {
+          Self(context: context.headers(headers))
+      }
+      """,
+      """
       func headers(_ headers: [AnyHttpHeader]) -> Self {
           Self(context: context.headers(headers))
       }
@@ -132,7 +137,22 @@ enum ContextProxyExpansion {
       }
       """,
       """
+      func set(header: AnyHttpHeader) -> Self {
+          Self(context: context.adding(header: header))
+      }
+      """,
+      """
+      func set<Value: Sendable>(header: HttpHeader<Value>) -> Self {
+          Self(context: context.adding(header: header))
+      }
+      """,
+      """
       func adding(headers: [AnyHttpHeader]) -> Self {
+          Self(context: context.adding(headers: headers))
+      }
+      """,
+      """
+      func adding(headers: HttpHeaderStorage) -> Self {
           Self(context: context.adding(headers: headers))
       }
       """,
@@ -172,7 +192,7 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func throwing<Failure: Decodable & Swift.Error>(
+      func throwing<Failure: Decodable & Sendable>(
           _ failure: Failure.Type,
           for statusCode: HTTPStatusCode
       ) -> Self {
@@ -180,7 +200,7 @@ enum ContextProxyExpansion {
       }
       """,
       """
-      func throwing<Failure: Decodable & Swift.Error>(
+      func throwing<Failure: Decodable & Sendable>(
           _ failure: Failure.Type,
           for statusClass: HTTPStatusClass
       ) -> Self {
@@ -193,8 +213,22 @@ enum ContextProxyExpansion {
       }
       """,
       """
+      func register(_ key: WrapperKey, _ makeWrapper: @escaping @Sendable (Self) -> any HttpWrapper) -> Self {
+          Self(context: context.register(key) {
+              makeWrapper(Self(context: context))
+          })
+      }
+      """,
+      """
       func wrap(_ key: WrapperKey, _ wrapper: (any HttpWrapper)? = nil, activate: Bool = true) -> Self {
           Self(context: context.wrap(key, wrapper, activate: activate))
+      }
+      """,
+      """
+      func wrap(_ key: WrapperKey, activate: Bool = true, _ makeWrapper: @escaping @Sendable (Self) -> any HttpWrapper) -> Self {
+          Self(context: context.wrap(key, activate: activate) {
+              makeWrapper(Self(context: context))
+          })
       }
       """,
       """
@@ -271,7 +305,7 @@ enum RouteExpansion {
     }
 
     let signature = parameters.map { "\($0.label): \($0.type)" }.joined(separator: ", ")
-    let expression = baseContextExpression(path: nil, parameters: parameters)
+    let expression = baseContextExpression(path: nil, parameters: parameters, child: true)
     return [
       """
       func callAsFunction(\(raw: signature)) -> Self {
@@ -287,16 +321,17 @@ enum RouteExpansion {
     declaration: some DeclGroupSyntax
   ) -> String {
     decoratedContextExpression(
-      baseContextExpression(path: path, parameters: parameters),
+      baseContextExpression(path: path, parameters: parameters, child: true),
       for: declaration
     )
   }
 
   static func baseContextExpression(
     path: String?,
-    parameters: [RouteParamArgument]
+    parameters: [RouteParamArgument],
+    child: Bool = false
   ) -> String {
-    var expression = "context"
+    var expression = child ? "context.child()" : "context"
 
     if let path {
       expression += "\n    .adding(path: \"\(path)\")"
@@ -425,7 +460,7 @@ enum RouteAccessorExpansion {
   }
 
   private static func accessor(childName: String, accessor: String, path: String?) -> DeclSyntax {
-    let expression = RouteExpansion.baseContextExpression(path: path, parameters: [])
+    let expression = RouteExpansion.baseContextExpression(path: path, parameters: [], child: true)
     return """
       var \(raw: accessor): \(raw: childName) {
           \(raw: childName)(context: \(raw: expression))
@@ -470,7 +505,8 @@ struct RouteChild {
   var initializer: String {
     let expression = RouteExpansion.baseContextExpression(
       path: path,
-      parameters: []
+      parameters: [],
+      child: true
     )
     return "        self.\(accessor) = \(childName)(context: \(expression))"
   }

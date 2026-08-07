@@ -161,6 +161,8 @@ struct HeaderAttribute {
       return "HTTPContentType"
     case "contentLength":
       return "Int"
+    case "authorization", "proxyAuthorization":
+      return "HTTPAuthorization"
     case .some:
       return "String"
     case .none:

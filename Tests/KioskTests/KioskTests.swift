@@ -29,6 +29,23 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(Set([contentType, lowercase]).count, 1)
   }
 
+  func testHTTPHeaderStorageSetsAndGetsTypedHeadersCaseInsensitively() {
+    var headers = HttpHeaderStorage()
+
+    headers.set(HttpHeader(.authorization, .bearer("first")))
+    headers.set(AnyHttpHeader(name: "authorization", value: "Bearer second"))
+    headers.set(.contentType, .json)
+
+    XCTAssertEqual(headers.count, 2)
+    XCTAssertEqual(headers.get(.authorization), "Bearer second")
+    XCTAssertEqual(headers.get("Authorization"), "Bearer second")
+    XCTAssertEqual(headers.get(.contentType), "application/json")
+    XCTAssertEqual(headers.all, [
+      AnyHttpHeader(name: "authorization", value: "Bearer second"),
+      AnyHttpHeader(name: "Content-Type", value: "application/json"),
+    ])
+  }
+
   func testHTTPContentTypesUseShortNames() {
     XCTAssertEqual(HTTPContentType.any.rawValue, "*/*")
     XCTAssertEqual(HTTPContentType.json.rawValue, "application/json")
@@ -50,6 +67,19 @@ final class KioskTests: XCTestCase {
     XCTAssertTrue(HTTPStatusCode.created.isSuccess)
     XCTAssertEqual(HTTPStatusCode.notFound.statusClass, .clientError)
     XCTAssertEqual(HTTPStatusCode.serviceUnavailable.reasonPhrase, "Service Unavailable")
+  }
+
+  func testHTTPErrorCanBeThrownWithStatusOnly() {
+    do {
+      throw HttpError(.unauthorized)
+    } catch let error as HttpError<EmptyHttpErrorPayload> {
+      XCTAssertEqual(error.code, .unauthorized)
+      XCTAssertEqual(error.status, .unauthorized)
+      XCTAssertEqual(error.message, nil)
+      XCTAssertEqual(error.payload, EmptyHttpErrorPayload())
+    } catch {
+      XCTFail("Expected status-only HTTP error, got \(error)")
+    }
   }
 
   func testHttpContextCanConfigureWrappersWithoutExternalProducts() {
@@ -83,7 +113,7 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(api.context.headers, [erased(.accept, .json)])
     XCTAssertEqual(api.context.wire.defaults[Bool.self], false)
     XCTAssertEqual(api.users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
-    XCTAssertEqual(api.users.context.headers, [erased(.accept, .json), erased(.authorization, "Bearer users")])
+    XCTAssertEqual(api.users.context.headers, [erased(.accept, .json), erased(.authorization, .bearer("users"))])
     XCTAssertEqual(api.users.context.wire.defaults[Bool.self], false)
 
     let hostOverride = ConfiguredAPI("staging.example.com")
@@ -91,7 +121,7 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(hostOverride.context.url.scheme, .https)
     XCTAssertEqual(hostOverride.context.headers, [erased(.accept, .json)])
     XCTAssertEqual(hostOverride.users.context.url.path.map(\.urlPathComponent), ["users"])
-    XCTAssertEqual(hostOverride.users.context.headers, [erased(.accept, .json), erased(.authorization, "Bearer users")])
+    XCTAssertEqual(hostOverride.users.context.headers, [erased(.accept, .json), erased(.authorization, .bearer("users"))])
 
     let urlOverride = ConfiguredAPI(url: .host("local.example.com").adding(path: "preview"))
     XCTAssertEqual(urlOverride.context.url.host, "local.example.com")
@@ -113,6 +143,21 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(api.users.context.headers, [header])
   }
 
+  func testChildContextsFoldLaterParentContextChanges() {
+    let header = AnyHttpHeader(name: "X-Client", value: "kiosk")
+    let api = StoreAPI("example.com")
+    let users = api.users
+
+    _ = api
+      .scheme(.http)
+      .adding(path: "v1")
+      .adding(header: header)
+
+    XCTAssertEqual(users.context.url.scheme, .http)
+    XCTAssertEqual(users.context.url.path.map(\.urlPathComponent), ["v1", "users"])
+    XCTAssertEqual(users.context.headers, [header])
+  }
+
   func testApiProxyMethodsCanRegisterMiddleware() async throws {
     let recorder = RequestRecorder()
     let api = StoreAPI("example.com")
@@ -124,6 +169,46 @@ final class KioskTests: XCTestCase {
 
     XCTAssertEqual(recordedRequest.url.host, "example.com")
     XCTAssertEqual(recordedRequest.url.path.map(\.urlPathComponent), ["users", "search"])
+  }
+
+  func testChildContextsUseLaterParentWrapperRegistrations() async throws {
+    let recorder = RequestRecorder()
+    let api = StoreAPI("example.com")
+    let users = api.users
+
+    _ = api.wrap(.capture, RecordingWrapper(recorder: recorder))
+
+    _ = try await users.search(q: "kiosk", page: 1)
+    let lastRequest = await recorder.last()
+    let recordedRequest = try XCTUnwrap(lastRequest)
+
+    XCTAssertEqual(recordedRequest.url.path.map(\.urlPathComponent), ["users", "search"])
+  }
+
+  func testWrapperFactoriesReceiveTypedRegistrationScope() async throws {
+    let apiRecorder = APIContextRecorder()
+    let requestRecorder = RequestRecorder()
+    let api = StoreAPI("example.com")
+
+    _ = api.wrap(.capture) { scopedAPI in
+      APIContextRecordingWrapper(
+        api: scopedAPI,
+        apiRecorder: apiRecorder,
+        requestRecorder: requestRecorder
+      )
+    }
+    _ = api.adding(path: "v1")
+
+    _ = try await api.users.search(q: "kiosk", page: 1)
+
+    let recordedAPIContext = await apiRecorder.last()
+    let apiContext = try XCTUnwrap(recordedAPIContext)
+    XCTAssertEqual(apiContext.host, "example.com")
+    XCTAssertEqual(apiContext.path, ["v1"])
+
+    let recordedRequest = await requestRecorder.last()
+    let request = try XCTUnwrap(recordedRequest)
+    XCTAssertEqual(request.url.path.map(\.urlPathComponent), ["v1", "users", "search"])
   }
 
   func testRouteAndEndpointProxyMethodsCanUpdateRequests() async throws {
@@ -441,8 +526,11 @@ final class KioskTests: XCTestCase {
     do {
       _ = try await failedAPI.users.create(.init(name: ""))
       XCTFail("Expected bad request error")
-    } catch let error as ContractAPI.BadRequest {
+    } catch let error as HttpError<ContractAPI.BadRequest> {
+      XCTAssertEqual(error.code, .badRequest)
+      XCTAssertEqual(error.status, .badRequest)
       XCTAssertEqual(error.message, "Name is required")
+      XCTAssertEqual(error.payload, ContractAPI.BadRequest(message: "Name is required"))
     } catch {
       XCTFail("Expected bad request error, got \(error)")
     }
@@ -541,7 +629,7 @@ private struct StoreAPI {
 @Default(Bool.self, false)
 @Api(.host("api.example.com").scheme(.http).port(.alternateHTTP).adding(path: "v1"))
 private struct ConfiguredAPI {
-  @Header(.authorization, "Bearer users")
+  @Header(.authorization, .bearer("users"))
   @Path
   struct Users {}
 }
@@ -716,7 +804,7 @@ private struct ComprehensiveAPI {
 @Api
 private struct ContractAPI {
   @Status(.badRequest)
-  struct BadRequest: Error, Equatable, Codable {
+  struct BadRequest: Equatable, Codable {
     let message: String
   }
 
@@ -764,6 +852,46 @@ private actor RequestRecorder {
 
   func last() -> HttpRequest? {
     request
+  }
+}
+
+private actor APIContextRecorder {
+  private var context: (host: String?, path: [String])?
+
+  func record(_ api: StoreAPI) {
+    context = (
+      host: api.context.url.host,
+      path: api.context.url.path.map(\.urlPathComponent)
+    )
+  }
+
+  func last() -> (host: String?, path: [String])? {
+    context
+  }
+}
+
+private final class APIContextRecordingWrapper: HttpWrapper, @unchecked Sendable {
+  let api: StoreAPI
+  let apiRecorder: APIContextRecorder
+  let requestRecorder: RequestRecorder
+
+  init(
+    api: StoreAPI,
+    apiRecorder: APIContextRecorder,
+    requestRecorder: RequestRecorder
+  ) {
+    self.api = api
+    self.apiRecorder = apiRecorder
+    self.requestRecorder = requestRecorder
+  }
+
+  func send(
+    _ request: HttpRequest,
+    next: @Sendable (HttpRequest) async throws -> HttpResponse<Data>
+  ) async throws -> HttpResponse<Data> {
+    await apiRecorder.record(api)
+    await requestRecorder.record(request)
+    return HttpResponse(body: Data("ok".utf8), status: .ok)
   }
 }
 

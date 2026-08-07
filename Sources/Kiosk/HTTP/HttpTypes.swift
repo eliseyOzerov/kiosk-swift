@@ -137,10 +137,32 @@ extension HttpHeaderKey where Value == Int {
   public static let contentLength = Self("Content-Length") { "\($0)" }
 }
 
+/// Typed value for the HTTP `Authorization` header.
+public enum HTTPAuthorization: Hashable, Sendable {
+  case bearer(String)
+  case basic(String)
+  case custom(String)
+
+  public var headerValue: String {
+    switch self {
+    case .bearer(let token):
+      return "Bearer \(token)"
+    case .basic(let credentials):
+      return "Basic \(credentials)"
+    case .custom(let value):
+      return value
+    }
+  }
+}
+
+extension HttpHeaderKey where Value == HTTPAuthorization {
+  public static let authorization = Self("Authorization") { $0.headerValue }
+  public static let proxyAuthorization = Self("Proxy-Authorization") { $0.headerValue }
+}
+
 extension HttpHeaderKey where Value == String {
   public static let acceptEncoding = Self("Accept-Encoding")
   public static let acceptLanguage = Self("Accept-Language")
-  public static let authorization = Self("Authorization")
   public static let cacheControl = Self("Cache-Control")
   public static let connection = Self("Connection")
   public static let contentEncoding = Self("Content-Encoding")
@@ -160,7 +182,6 @@ extension HttpHeaderKey where Value == String {
   public static let location = Self("Location")
   public static let origin = Self("Origin")
   public static let proxyAuthenticate = Self("Proxy-Authenticate")
-  public static let proxyAuthorization = Self("Proxy-Authorization")
   public static let range = Self("Range")
   public static let referer = Self("Referer")
   public static let retryAfter = Self("Retry-After")
@@ -207,6 +228,142 @@ public struct AnyHttpHeader: Hashable, Sendable {
   public func hash(into hasher: inout Hasher) {
     hasher.combine(name.lowercased())
     hasher.combine(value)
+  }
+}
+
+/// Request header storage with case-insensitive replacement and typed accessors.
+public struct HttpHeaderStorage: Hashable, Sendable {
+  private var order: [String]
+  private var storage: [String: AnyHttpHeader]
+
+  public init() {
+    order = []
+    storage = [:]
+  }
+
+  public init(_ headers: [AnyHttpHeader]) {
+    self.init()
+    set(headers)
+  }
+
+  public var all: [AnyHttpHeader] {
+    order.compactMap { storage[$0] }
+  }
+
+  public var isEmpty: Bool {
+    storage.isEmpty
+  }
+
+  public var count: Int {
+    storage.count
+  }
+
+  public func contains(_ name: String) -> Bool {
+    storage[Self.key(for: name)] != nil
+  }
+
+  public func contains<Value>(_ key: HttpHeaderKey<Value>) -> Bool {
+    contains(key.name)
+  }
+
+  public func get(_ name: String) -> String? {
+    storage[Self.key(for: name)]?.value
+  }
+
+  public func get<Value>(_ key: HttpHeaderKey<Value>) -> String? {
+    get(key.name)
+  }
+
+  public func last(where predicate: (AnyHttpHeader) throws -> Bool) rethrows -> AnyHttpHeader? {
+    try all.last(where: predicate)
+  }
+
+  public mutating func set(_ header: AnyHttpHeader) {
+    let key = Self.key(for: header.name)
+    if storage[key] == nil {
+      order.append(key)
+    }
+    storage[key] = header
+  }
+
+  public mutating func set<Value>(_ header: HttpHeader<Value>) {
+    set(header.erased)
+  }
+
+  public mutating func set<Value>(_ key: HttpHeaderKey<Value>, _ value: Value) {
+    set(HttpHeader(key, value))
+  }
+
+  public mutating func append(_ header: AnyHttpHeader) {
+    set(header)
+  }
+
+  public mutating func append<Value>(_ header: HttpHeader<Value>) {
+    set(header)
+  }
+
+  public mutating func append(contentsOf headers: [AnyHttpHeader]) {
+    set(headers)
+  }
+
+  public mutating func set(_ headers: [AnyHttpHeader]) {
+    for header in headers {
+      set(header)
+    }
+  }
+
+  public mutating func set(_ headers: HttpHeaderStorage) {
+    set(headers.all)
+  }
+
+  public mutating func remove(_ name: String) {
+    let key = Self.key(for: name)
+    storage[key] = nil
+    order.removeAll { $0 == key }
+  }
+
+  public mutating func remove<Value>(_ key: HttpHeaderKey<Value>) {
+    remove(key.name)
+  }
+
+  public func setting(_ header: AnyHttpHeader) -> Self {
+    var headers = self
+    headers.set(header)
+    return headers
+  }
+
+  public func setting<Value>(_ header: HttpHeader<Value>) -> Self {
+    setting(header.erased)
+  }
+
+  public func setting<Value>(_ key: HttpHeaderKey<Value>, _ value: Value) -> Self {
+    setting(HttpHeader(key, value))
+  }
+
+  public func merging(_ headers: [AnyHttpHeader]) -> Self {
+    var storage = self
+    storage.set(headers)
+    return storage
+  }
+
+  public func merging(_ headers: HttpHeaderStorage) -> Self {
+    merging(headers.all)
+  }
+
+  private static func key(for name: String) -> String {
+    name.lowercased()
+  }
+}
+
+extension HttpHeaderStorage: ExpressibleByArrayLiteral {
+  public init(arrayLiteral elements: AnyHttpHeader...) {
+    self.init(elements)
+  }
+}
+
+extension HttpHeaderStorage: Sequence {
+  public func makeIterator() -> IndexingIterator<[AnyHttpHeader]> {
+    all.makeIterator()
   }
 }
 
