@@ -105,6 +105,12 @@ public macro Part(_ name: String? = nil) =
 public macro Status(_ status: HTTPStatusCode) =
   #externalMacro(module: "KioskMacros", type: "StatusMacro")
 
+/// Registers a scoped error body type for an HTTP status class.
+@attached(member, names: arbitrary)
+@attached(extension, conformances: WireCodable)
+public macro Status(_ status: HTTPStatusClass) =
+  #externalMacro(module: "KioskMacros", type: "StatusMacro")
+
 // MARK: - HTTP method macros
 
 /// Generates a GET endpoint from an API endpoint struct.

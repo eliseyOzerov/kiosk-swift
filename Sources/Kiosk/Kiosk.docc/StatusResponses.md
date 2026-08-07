@@ -15,13 +15,19 @@ struct Profile {
 
 ## Error Bodies
 
-Use `@Status` for non-success HTTP status models. Put shared error models on the API or path where they apply.
+Use `@Status` for non-success HTTP status models. Put shared error models on the API or path where they apply. A status model can cover an exact status code, an entire status class, or multiple codes and classes.
 
 ```swift
 @Api(.host("api.example.com"))
 struct StoreAPI {
   @Status(.unauthorized)
   struct Unauthorized: Codable {
+    let message: String
+  }
+
+  @Status(.clientError)
+  @Status(.serverError)
+  struct ErrorResponse: Codable {
     let message: String
   }
 
@@ -53,7 +59,7 @@ You can also throw status-only errors manually:
 throw HttpError(.unauthorized)
 ```
 
-`HttpError` contains the HTTP status code, an optional `message` decoded from the error body, and the payload decoded from the nearest matching `@Status` struct in the route tree. If a response status has no registered error body, Kiosk throws an unexpected-status error with the raw response data.
+`HttpError` contains the HTTP status code, an optional `message` decoded from the error body, and the payload decoded from the nearest matching `@Status` struct in the route tree. Exact status registrations take precedence over status-class registrations. If a response status has no registered error body, Kiosk throws an unexpected-status error with the raw response data.
 
 ## Scope
 

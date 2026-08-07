@@ -563,6 +563,37 @@ final class KioskTests: XCTestCase {
       XCTFail("Expected bad request error, got \(error)")
     }
 
+    for (status, message) in [
+      (HTTPStatusCode.notFound, "User not found"),
+      (HTTPStatusCode.internalServerError, "Service unavailable"),
+    ] {
+      let responseBody = try JSONEncoder().encode(
+        ContractAPI.ErrorResponse(message: message)
+      )
+      let classFailureAPI = ContractAPI(
+        context: HttpContext(url: .host("example.com"))
+          .wrap(
+            .capture,
+            RecordingWrapper(
+              recorder: RequestRecorder(),
+              body: responseBody,
+              status: status
+            )
+          )
+      )
+
+      do {
+        _ = try await classFailureAPI.users.create(.init(name: "Ada"))
+        XCTFail("Expected status-class error for \(status.rawValue)")
+      } catch let error as HttpError<ContractAPI.ErrorResponse> {
+        XCTAssertEqual(error.code, status)
+        XCTAssertEqual(error.message, message)
+        XCTAssertEqual(error.payload, ContractAPI.ErrorResponse(message: message))
+      } catch {
+        XCTFail("Expected status-class error, got \(error)")
+      }
+    }
+
     let profileBody = try JSONEncoder().encode(ContractAPI.Users.Profile.Response(name: "Ada"))
     let profileAPI = ContractAPI(
       context: HttpContext(url: .host("example.com"))
@@ -847,6 +878,12 @@ private struct ComprehensiveAPI {
 private struct ContractAPI {
   @Status(.badRequest)
   struct BadRequest: Equatable, Codable {
+    let message: String
+  }
+
+  @Status(.clientError)
+  @Status(.serverError)
+  struct ErrorResponse: Equatable {
     let message: String
   }
 

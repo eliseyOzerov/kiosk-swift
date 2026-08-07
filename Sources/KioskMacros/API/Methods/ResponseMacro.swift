@@ -36,6 +36,10 @@ public struct StatusMacro: MemberMacro, ExtensionMacro {
       return []
     }
 
+    guard isFirstStatusAttribute(node, on: declaration) else {
+      return []
+    }
+
     return try EndpointContractWire.generatedMembers(
       of: node,
       providingMembersOf: declaration,
@@ -51,12 +55,29 @@ public struct StatusMacro: MemberMacro, ExtensionMacro {
     conformingTo protocols: [TypeSyntax],
     in context: some MacroExpansionContext
   ) throws -> [ExtensionDeclSyntax] {
-    try EndpointContractWire.generatedExtensions(
+    guard isFirstStatusAttribute(node, on: declaration) else {
+      return []
+    }
+
+    return try EndpointContractWire.generatedExtensions(
       of: node,
       attachedTo: declaration,
       providingExtensionsOf: type,
       conformingTo: protocols,
       in: context
     )
+  }
+
+  private static func isFirstStatusAttribute(
+    _ node: AttributeSyntax,
+    on declaration: some DeclGroupSyntax
+  ) -> Bool {
+    declaration.attributes.lazy.compactMap { element in
+      element.as(AttributeSyntax.self)
+    }
+    .first { attribute in
+      attribute.attributeName.trimmedDescription == "Status"
+    }?
+    .trimmedDescription == node.trimmedDescription
   }
 }

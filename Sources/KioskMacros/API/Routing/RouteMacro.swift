@@ -489,17 +489,24 @@ private struct StatusRegistration {
   let statusExpression: String
 
   static func all(in declaration: some DeclGroupSyntax) -> [StatusRegistration] {
-    declaration.memberBlock.members.compactMap { member in
-      guard let nested = member.decl.as(StructDeclSyntax.self),
-        let attribute = nested.attributes.lazy.compactMap({ $0.as(AttributeSyntax.self) }).first(where: {
-          $0.attributeName.trimmedDescription == "Status"
-        }),
-        let status = StatusAttribute(attribute)
-      else {
-        return nil
+    declaration.memberBlock.members.flatMap { member -> [StatusRegistration] in
+      guard let nested = member.decl.as(StructDeclSyntax.self) else {
+        return []
       }
 
-      return StatusRegistration(type: nested.name.text, statusExpression: status.statusExpression)
+      return nested.attributes.compactMap { element in
+        guard let attribute = element.as(AttributeSyntax.self),
+          attribute.attributeName.trimmedDescription == "Status",
+          let status = StatusAttribute(attribute)
+        else {
+          return nil
+        }
+
+        return StatusRegistration(
+          type: nested.name.text,
+          statusExpression: status.statusExpression
+        )
+      }
     }
   }
 }
