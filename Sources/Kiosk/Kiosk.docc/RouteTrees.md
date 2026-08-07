@@ -50,7 +50,7 @@ Kiosk generates value-based route nodes. Each API, path, and endpoint value carr
 
 ```swift
 let authenticated = api
-  .header(.authorization, "Bearer token")
+  .set(header: HttpHeader(.authorization, .bearer("token")))
   .timeout(30)
 ```
 

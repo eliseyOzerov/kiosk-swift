@@ -15,7 +15,7 @@ struct AuthWrapper: HttpWrapper {
     next: @Sendable (HttpRequest) async throws -> HttpResponse<Data>
   ) async throws -> HttpResponse<Data> {
     var request = request
-    request.headers.append(HttpHeader(.authorization, "Bearer \(token)").erased)
+    request.headers.set(.authorization, .bearer(token))
     return try await next(request)
   }
 }

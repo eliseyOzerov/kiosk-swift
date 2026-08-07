@@ -12,7 +12,7 @@ Set default headers on scopes and declare endpoint header arguments.
 @Header(.contentType, .json)
 struct StoreAPI {
   @Path
-  @Header(.authorization, "Bearer token")
+  @Header(.authorization, .bearer("token"))
   struct Users {
     @Get
     @Header(.ifNoneMatch)
@@ -34,7 +34,7 @@ Use built-in keys when possible:
 ```swift
 @Header(.accept, .json)
 @Header(.contentType, .json)
-@Header(.authorization, "Bearer token")
+@Header(.authorization, .bearer("token"))
 ```
 
 Use custom string headers when the package does not provide a typed key:

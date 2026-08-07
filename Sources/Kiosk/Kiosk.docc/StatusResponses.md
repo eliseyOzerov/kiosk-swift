@@ -21,21 +21,39 @@ Use `@Status` for non-success HTTP status models. Put shared error models on the
 @Api(.host("api.example.com"))
 struct StoreAPI {
   @Status(.unauthorized)
-  struct Unauthorized: Error, Codable {
+  struct Unauthorized: Codable {
     let message: String
   }
 
   @Path
   struct Users {
     @Status(.notFound)
-    struct NotFound: Error, Codable {
+    struct NotFound: Codable {
       let message: String
     }
   }
 }
 ```
 
-If a response status has no registered error body, Kiosk throws an unexpected-status error with the raw response data.
+Kiosk throws typed HTTP errors for registered error bodies:
+
+```swift
+do {
+  _ = try await api.users.profile()
+} catch let error as HttpError<StoreAPI.Users.NotFound> {
+  print(error.code)
+  print(error.message)
+  print(error.payload)
+}
+```
+
+You can also throw status-only errors manually:
+
+```swift
+throw HttpError(.unauthorized)
+```
+
+`HttpError` contains the HTTP status code, an optional `message` decoded from the error body, and the payload decoded from the nearest matching `@Status` struct in the route tree. If a response status has no registered error body, Kiosk throws an unexpected-status error with the raw response data.
 
 ## Scope
 
