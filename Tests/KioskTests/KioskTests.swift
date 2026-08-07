@@ -143,6 +143,22 @@ final class KioskTests: XCTestCase {
     XCTAssertEqual(api.users.context.headers, [header])
   }
 
+  func testTimeoutMacroScopesAcrossRouteTree() {
+    let api = TimeoutConfiguredAPI()
+
+    XCTAssertEqual(api.context.timeout, HttpTimeout(request: 10, resource: 60))
+    XCTAssertEqual(api.users.context.timeout, HttpTimeout(request: 10, resource: 120))
+    XCTAssertEqual(api.users.search.context.timeout, HttpTimeout(request: 3, resource: 120))
+  }
+
+  func testTimeoutProxyMethodsUpdateChildContexts() {
+    let api = StoreAPI("example.com")
+      .timeout(request: 8, resource: 30)
+
+    XCTAssertEqual(api.context.timeout, HttpTimeout(request: 8, resource: 30))
+    XCTAssertEqual(api.users.context.timeout, HttpTimeout(request: 8, resource: 30))
+  }
+
   func testChildContextsFoldLaterParentContextChanges() {
     let header = AnyHttpHeader(name: "X-Client", value: "kiosk")
     let api = StoreAPI("example.com")
@@ -632,6 +648,20 @@ private struct ConfiguredAPI {
   @Header(.authorization, .bearer("users"))
   @Path
   struct Users {}
+}
+
+@Timeout(request: 10, resource: 60)
+@Api
+private struct TimeoutConfiguredAPI {
+  @Timeout(resource: 120)
+  @Path
+  struct Users {
+    @Timeout(request: 3)
+    @Get
+    struct Search {
+      typealias Response = Data
+    }
+  }
 }
 
 @Api(url: .host("labeled.example.com"))

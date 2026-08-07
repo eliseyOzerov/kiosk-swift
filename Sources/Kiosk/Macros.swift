@@ -64,6 +64,14 @@ public macro Header<Value: Sendable>(_ key: HttpHeaderKey<Value>, _ value: Value
 public macro Header(_ name: String, _ value: String) =
   #externalMacro(module: "KioskMacros", type: "HeaderMacro")
 
+/// Sets request and resource timeouts on an API path context or endpoint.
+@attached(member, names: arbitrary)
+public macro Timeout(
+  request: Double? = nil,
+  resource: Double? = nil
+) =
+  #externalMacro(module: "KioskMacros", type: "TimeoutMacro")
+
 /// Marks an endpoint as having a header parameter with a default value.
 @attached(member, names: arbitrary)
 public macro Header<Value: Sendable>(_ key: HttpHeaderKey<Value>, default defaultValue: Value) =

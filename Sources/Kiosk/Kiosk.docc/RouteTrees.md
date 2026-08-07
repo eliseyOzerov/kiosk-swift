@@ -51,7 +51,15 @@ Kiosk generates value-based route nodes. Each API, path, and endpoint value carr
 ```swift
 let authenticated = api
   .set(header: HttpHeader(.authorization, .bearer("token")))
-  .timeout(30)
+  .timeout(request: 30, resource: 120)
 ```
 
 This makes route trees cheap to pass around and easy to scope.
+
+You can also declare inherited timeout policy with `@Timeout` on an API root, path, or endpoint:
+
+```swift
+@Timeout(request: 30, resource: 120)
+@Api(.host("api.example.com"))
+struct StoreAPI {}
+```

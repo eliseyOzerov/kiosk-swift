@@ -10,6 +10,7 @@ public struct ResolvedHttpContext: Sendable {
   public var contentType: HTTPContentType?
   public var accept: HTTPContentType?
   public var options: HttpOptions
+  public var timeout: HttpTimeout
   public var wire: WireSpec
   public var errors: HttpErrorDecoding
   public var wrappers: WrapperRegistry<any HttpWrapper>
@@ -21,6 +22,7 @@ public struct ResolvedHttpContext: Sendable {
     contentType: HTTPContentType? = nil,
     accept: HTTPContentType? = nil,
     options: HttpOptions = .init(),
+    timeout: HttpTimeout = .init(),
     wire: WireSpec = .default,
     errors: HttpErrorDecoding = .init(),
     wrappers: WrapperRegistry<any HttpWrapper> = .init()
@@ -31,6 +33,7 @@ public struct ResolvedHttpContext: Sendable {
     self.contentType = contentType
     self.accept = accept
     self.options = options
+    self.timeout = timeout
     self.wire = wire
     self.errors = errors
     self.wrappers = wrappers
@@ -53,6 +56,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
   private var localHeaders: HttpHeaderStorage
   private var replacesHeaders: Bool
   private var optionsOverride: HttpOptions?
+  private var localTimeout: HttpTimeout
   private var contentTypeOverride: HTTPContentType?
   private var acceptOverride: HTTPContentType?
   private var wireReplacement: WireSpec?
@@ -111,6 +115,12 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
     set { optionsOverride = newValue }
   }
 
+  /// Request and resource timeout policy inherited by generated API endpoints.
+  public var timeout: HttpTimeout {
+    get { fold().timeout }
+    set { localTimeout = newValue }
+  }
+
   /// Wire settings for this context.
   public var wire: WireSpec {
     get { fold().wire }
@@ -137,6 +147,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
     contentType: HTTPContentType? = nil,
     accept: HTTPContentType? = nil,
     options: HttpOptions = .init(),
+    timeout: HttpTimeout = .init(),
     wire: WireSpec = .default,
     errors: HttpErrorDecoding = .init(),
     wrappers: WrapperRegistry<any HttpWrapper> = .init()
@@ -153,6 +164,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
     localHeaders = headers
     replacesHeaders = parent == nil || !headers.isEmpty
     optionsOverride = parent == nil ? options : nil
+    localTimeout = timeout
     contentTypeOverride = contentType
     acceptOverride = accept
     wireReplacement = parent == nil ? wire : nil
@@ -207,6 +219,7 @@ public final class HttpContext: RequestContext, WrapperContext, @unchecked Senda
     if let optionsOverride {
       resolved.options = optionsOverride
     }
+    resolved.timeout = resolved.timeout.merging(localTimeout)
     if let contentTypeOverride {
       resolved.contentType = contentTypeOverride
     }
@@ -505,6 +518,27 @@ public struct HttpOptions: Sendable {
   }
 }
 
+/// Request and resource timeout policy inherited by API route contexts.
+public struct HttpTimeout: Equatable, Sendable {
+  /// Overrides the idle timeout for requests built from this context.
+  public var request: TimeInterval?
+
+  /// Stores the total resource timeout intended for the backing URL session.
+  public var resource: TimeInterval?
+
+  public init(request: TimeInterval? = nil, resource: TimeInterval? = nil) {
+    self.request = request
+    self.resource = resource
+  }
+
+  func merging(_ other: HttpTimeout) -> HttpTimeout {
+    HttpTimeout(
+      request: other.request ?? request,
+      resource: other.resource ?? resource
+    )
+  }
+}
+
 /// Encodes endpoint request content according to the active HTTP content type.
 public enum HTTPContentEncoder {
   public static func encode<Content>(
@@ -708,6 +742,18 @@ extension HttpContext {
   public func options(_ options: HttpOptions) -> HttpContext {
     optionsOverride = options
     return self
+  }
+
+  public func timeout(_ timeout: HttpTimeout) -> HttpContext {
+    localTimeout = localTimeout.merging(timeout)
+    return self
+  }
+
+  public func timeout(
+    request: TimeInterval? = nil,
+    resource: TimeInterval? = nil
+  ) -> HttpContext {
+    timeout(HttpTimeout(request: request, resource: resource))
   }
 
   public func adding(path component: UrlPathComponent) -> HttpContext {
@@ -1155,6 +1201,9 @@ extension HttpContext {
       (context.accept ?? .json).rawValue,
       forHTTPHeaderField: HttpHeaderKey<HTTPContentType>.accept.name)
 
+    if let requestTimeout = context.timeout.request {
+      urlRequest.timeoutInterval = requestTimeout
+    }
     request.options.apply(to: &urlRequest)
 
     for header in request.headers {

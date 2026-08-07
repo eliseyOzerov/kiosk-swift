@@ -112,6 +112,16 @@ enum ContextProxyExpansion {
       }
       """,
       """
+      func timeout(_ timeout: HttpTimeout) -> Self {
+          Self(context: context.timeout(timeout))
+      }
+      """,
+      """
+      func timeout(request: Double? = nil, resource: Double? = nil) -> Self {
+          Self(context: context.timeout(request: request, resource: resource))
+      }
+      """,
+      """
       func adding(path component: UrlPathComponent) -> Self {
           Self(context: context.adding(path: component))
       }
@@ -359,6 +369,11 @@ enum RouteExpansion {
       case "Header":
         if let header = StaticHeaderAttribute(attribute) {
           expression += "\n    .adding(header: \(header.header))"
+        }
+      case "Timeout":
+        if let timeout = TimeoutAttribute(attribute) {
+          expression +=
+            "\n    .timeout(request: \(timeout.request), resource: \(timeout.resource))"
         }
       case "Accept":
         if let accept = AcceptAttribute(attribute) {

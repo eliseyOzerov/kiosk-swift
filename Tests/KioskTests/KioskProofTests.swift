@@ -35,6 +35,34 @@ final class KioskProofTests: XCTestCase {
 		XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), HTTPContentType.text.rawValue)
 	}
 
+	func testTimeoutMacroRequestValueReachesFinalURLRequest() async throws {
+		let recorder = URLRequestRecorder()
+		URLRequestCaptureProtocol.handler = { request in
+			recorder.record(request)
+
+			return (
+				try XCTUnwrap(HTTPURLResponse(
+					url: try XCTUnwrap(request.url),
+					statusCode: HTTPStatusCode.ok.rawValue,
+					httpVersion: nil,
+					headerFields: nil
+				)),
+				Data("ok".utf8)
+			)
+		}
+
+		let api = TimeoutTransportProofAPI(context: HttpContext(
+			session: URLSession(configuration: .kioskProof),
+			url: .host("example.com")
+		))
+
+		_ = try await api.ping()
+
+		let request = try recorder.last()
+		XCTAssertEqual(request.timeoutInterval, 4)
+		XCTAssertEqual(api.ping.context.timeout.resource, 60)
+	}
+
 	func testContentMetadataInheritsAndOverridesAcrossPathTree() async throws {
 		let recorder = ProofRequestRecorder()
 		let api = ContentProofAPI(
@@ -251,6 +279,16 @@ private struct AuthPolicyProofAPI {
 @Header(.accept, .text)
 @Api
 private struct TransportProofAPI {
+	@Get
+	struct Ping {
+		typealias Response = Data
+	}
+}
+
+@Timeout(request: 10, resource: 60)
+@Api
+private struct TimeoutTransportProofAPI {
+	@Timeout(request: 4)
 	@Get
 	struct Ping {
 		typealias Response = Data

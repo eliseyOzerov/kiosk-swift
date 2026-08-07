@@ -19,6 +19,7 @@ struct KioskMacrosPlugin: CompilerPlugin {
     ParamMacro.self,
     QueryMacro.self,
     HeaderMacro.self,
+    TimeoutMacro.self,
     ContentMacro.self,
     WrapMacro.self,
     UnwrapMacro.self,

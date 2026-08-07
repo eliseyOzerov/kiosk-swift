@@ -220,6 +220,45 @@ struct StaticHeaderAttribute {
   }
 }
 
+/// Parsed scoped timeout attribute payload.
+struct TimeoutAttribute {
+  let request: String
+  let resource: String
+
+  init?(_ attribute: AttributeSyntax) {
+    guard case .argumentList(let arguments) = attribute.arguments else {
+      return nil
+    }
+
+    var request: String?
+    var resource: String?
+
+    for argument in arguments {
+      guard let label = argument.label?.text else {
+        return nil
+      }
+
+      switch label {
+      case "request":
+        guard request == nil else { return nil }
+        request = argument.expression.trimmedDescription
+      case "resource":
+        guard resource == nil else { return nil }
+        resource = argument.expression.trimmedDescription
+      default:
+        return nil
+      }
+    }
+
+    guard request != nil || resource != nil else {
+      return nil
+    }
+
+    self.request = request ?? "nil"
+    self.resource = resource ?? "nil"
+  }
+}
+
 /// Parsed HTTP status attribute payload for endpoint result contract macros.
 struct StatusAttribute {
   let statusExpression: String
