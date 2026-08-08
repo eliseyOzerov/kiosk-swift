@@ -553,7 +553,7 @@ extension WireSpec {
       return try container.decode(Date.self, forKey: key)
     case .iso8601:
       let value = try container.decode(String.self, forKey: key)
-      if let date = ISO8601DateFormatter().date(from: value) {
+      if let date = parseISO8601(value) {
         return date
       }
 
@@ -565,7 +565,7 @@ extension WireSpec {
       return try Date(timeIntervalSince1970: container.decode(Double.self, forKey: key) / 1_000)
     case .string:
       let value = try container.decode(String.self, forKey: key)
-      if let date = ISO8601DateFormatter().date(from: value) {
+      if let date = parseISO8601(value) {
         return date
       }
 
@@ -585,6 +585,16 @@ extension WireSpec {
       throw DecodingError.dataCorruptedError(
         forKey: key, in: container, debugDescription: "Expected date string matching \(pattern).")
     }
+  }
+
+  private func parseISO8601(_ value: String) -> Date? {
+    let formatter = ISO8601DateFormatter()
+    if let date = formatter.date(from: value) {
+      return date
+    }
+
+    formatter.formatOptions.insert(.withFractionalSeconds)
+    return formatter.date(from: value)
   }
 
   private func containerValueIsNil<Key: CodingKey>(

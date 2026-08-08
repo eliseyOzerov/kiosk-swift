@@ -64,6 +64,23 @@ final class KioskLocalModelTests: XCTestCase {
     XCTAssertEqual(object["scores"] as? [Int], [])
     XCTAssertEqual(object["labels"] as? [String: String], [:])
   }
+
+  func testISO8601DatesDecodeWithAndWithoutFractionalSeconds() throws {
+    let wholeSeconds = try JSONDecoder().decode(
+      ISO8601Record.self,
+      from: Data(#"{"createdAt":"2026-08-08T16:28:36Z"}"#.utf8)
+    )
+    let fractionalSeconds = try JSONDecoder().decode(
+      ISO8601Record.self,
+      from: Data(#"{"createdAt":"2026-08-08T16:28:36.974Z"}"#.utf8)
+    )
+
+    XCTAssertEqual(
+      fractionalSeconds.createdAt.timeIntervalSince(wholeSeconds.createdAt),
+      0.974,
+      accuracy: 0.000_001
+    )
+  }
 }
 
 @Wire
@@ -82,4 +99,9 @@ struct ContextualRecord: Equatable {
   var tags: [String]
   var scores: Set<Int>
   var labels: [String: String]
+}
+
+@Wire
+private struct ISO8601Record: Equatable {
+  var createdAt: Date
 }
